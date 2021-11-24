@@ -7,6 +7,7 @@ use warnings;
 use FindBin;
 use Data::Dumper;
 use File::Slurp;
+use JSON;
 
 use lib "$FindBin::Bin/../lib";
 

@@ -28,17 +28,18 @@ if ($parms->{in_place} and -f $parms->{json_file}) {
     $json = decode_json($jsonText);
 }
 
-
-if ($parms->{mode} =~ "swissprot") {
+if ($parms->{mode} =~ m/swissprot/) {
     $db->swissProtsToJson($json);
 }
-if ($parms->{mode} =~ "enzymecode") {
+if ($parms->{mode} =~ m/enzymecode/) {
     $db->enzymeCodeToJson($json);
 }
-if ($parms->{mode} =~ "kegg") {
+if ($parms->{mode} =~ m/kegg/) {
     $db->keggToJson($json);
 }
-
+if ($parms->{mode} =~ m/sfld/) {
+    $db->sfldToJson($json);
+}
 
 my $JSON = JSON->new->allow_nonref;
 my $jsonText = $JSON->pretty->encode($json);

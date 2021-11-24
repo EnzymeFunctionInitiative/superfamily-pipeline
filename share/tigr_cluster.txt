@@ -1,0 +1,124 @@
+cluster-1-1	TIGR02109	pyrroloquinoline quinone biosynthesis protein PqqE
+cluster-1-1	TIGR02666	GTP 3',8-cyclase MoaA
+cluster-1-1	TIGR02668	GTP 3',8-cyclase MoaA
+cluster-1-1	TIGR03470	adenosyl-hopene transferase HpnH
+cluster-1-1	TIGR03906	quinohemoprotein amine dehydrogenase maturation protein
+cluster-1-1	TIGR03913	GDL motif peptide-associated radical SAM/SPASM maturase
+cluster-1-1	TIGR03942	anaerobic sulfatase maturase
+cluster-1-1	TIGR03961	PTO1314 family radical SAM protein
+cluster-1-1	TIGR03962	mycofactocin radical SAM maturase
+cluster-1-1	TIGR03974	thioether cross-link-forming SCIFF peptide maturase
+cluster-1-1	TIGR03977	His-Xaa-Ser system radical SAM maturase HxsC
+cluster-1-1	TIGR03978	His-Xaa-Ser system radical SAM maturase HxsB
+cluster-1-1	TIGR04038	NULL
+cluster-1-1	TIGR04043	MSMEG_0568 family radical SAM protein
+cluster-1-1	TIGR04051	heme d1 biosynthesis radical SAM protein NirJ
+cluster-1-1	TIGR04054	putative heme d1 biosynthesis radical SAM protein NirJ1
+cluster-1-1	TIGR04055	putative heme d1 biosynthesis radical SAM protein NirJ2
+cluster-1-1	TIGR04064	nif11-like peptide radical SAM maturase
+cluster-1-1	TIGR04068	Cys-rich peptide radical SAM maturase CcpM
+cluster-1-1	TIGR04078	YydG family peptide radical SAM peptide maturase
+cluster-1-1	TIGR04080	KxxxW cyclic peptide radical SAM maturase
+cluster-1-1	TIGR04082	selenobiotic family peptide radical SAM maturase
+cluster-1-1	TIGR04083	TIGR04083 family peptide-modifying radical SAM enzyme
+cluster-1-1	TIGR04084	TIGR04084 family radical SAM/SPASM domain-containing protein
+cluster-1-1	TIGR04100	TIGR04100 family radical SAM protein
+cluster-1-1	TIGR04115	radical SAM peptide maturase, CXXX-repeat target family
+cluster-1-1	TIGR04133	NULL
+cluster-1-1	TIGR04136	FibroRumin system radical SAM peptide maturase
+cluster-1-1	TIGR04148	radical SAM peptide maturase
+cluster-1-1	TIGR04150	TIGR04150 pseudo-rSAM protein
+cluster-1-1	TIGR04163	peptide-modifying radical SAM enzyme CbpB
+cluster-1-1	TIGR04167	radical SAM/Cys-rich domain protein
+cluster-1-1	TIGR04250	SynChlorMet cassette radical SAM/SPASM protein ScmE
+cluster-1-1	TIGR04251	SynChlorMet cassette radical SAM/SPASM protein ScmF
+cluster-1-1	TIGR04261	GRRM system radical SAM/SPASM domain protein
+cluster-1-1	TIGR04269	FxsB family radical SAM/SPASM domain protein
+cluster-1-1	TIGR04280	putative geopeptide radical SAM maturase
+cluster-1-1	TIGR04303	GeoRSP system radical SAM/SPASM protein
+cluster-1-1	TIGR04311	radical SAM/SPASM family putative metalloenzyme maturase
+cluster-1-1	TIGR04317	tungsten cofactor oxidoreductase radical SAM maturase
+cluster-1-1	TIGR04321	spiro-SPASM protein
+cluster-1-1	TIGR04334	radical SAM/SPASM domain Clo7bot peptide maturase
+cluster-1-1	TIGR04340	radical SAM/SPASM domain protein, ACGX system
+cluster-1-1	TIGR04347	pseudo-rSAM protein/SPASM domain protein
+cluster-1-1	TIGR04403	sporulation killing factor system radical SAM maturase
+cluster-1-1	TIGR04463	radical SAM/SPASM domain protein maturase
+cluster-1-1	TIGR04466	cytosylglucuronate decarboxylase
+cluster-1-1	TIGR04478	radical SAM/CxCxxxxC motif protein YfkAB
+cluster-1-1	TIGR04496	XyeB family radical SAM/SPASM peptide maturase
+cluster-1-1	TIGR04545	heme b synthase
+cluster-1-1	TIGR04546	12,18-didecarboxysiroheme deacetylase
+cluster-1-4	TIGR04426	dTDP-4-amino-4,6-dideoxy-D-glucose ammonia-lyase
+cluster-1-5	TIGR01290	nitrogenase cofactor biosynthesis protein NifB
+cluster-10	TIGR03904	YgiQ family radical SAM protein
+cluster-11	TIGR03916	putative DNA modification/repair radical SAM protein
+cluster-14	TIGR03278	methyl coenzyme M reductase-arginine methyltransferase Mmp10
+cluster-2-1	TIGR01212	TIGR01212 family radical SAM protein 
+cluster-2-1	TIGR02026	magnesium-protoporphyrin IX monomethyl ester anaerobic oxidative cyclase 
+cluster-2-1	TIGR03471	hopanoid biosynthesis associated radical SAM protein HpnJ 
+cluster-2-1	TIGR03960	TIGR03960 family B12-binding radical SAM protein 
+cluster-2-1	TIGR03975	RiPP maturation radical SAM protein 1 
+cluster-2-1	TIGR04013	TIGR04013 family B12-binding domain/radical SAM domain-containing protein 
+cluster-2-1	TIGR04014	TIGR04014 family B12-binding domain/radical SAM domain-containing protein 
+cluster-2-1	TIGR04190	TIGR04190 family B12-binding domain/radical SAM domain protein 
+cluster-2-1	TIGR04295	TIGR04295 family B12-binding domain-containing radical SAM protein 
+cluster-2-1	TIGR04367	hopanoid C-3 methylase HpnR 
+cluster-2-1	TIGR04385	B12 lower ligand biosynthesis radical SAM protein BzaD 
+cluster-2-1	TIGR04428	tryptophan 2-C-methyltransferase 
+cluster-2-1	TIGR04434	B12-binding domain/radical SAM domain-containing protein 
+cluster-2-1	TIGR04479	PhpK family radical SAM P-methyltransferase 
+cluster-2-1	TIGR04517	radical SAM family RiPP maturation amino acid epimerase 
+cluster-2-1	TIGR03960	TIGR03960 family B12-binding radical SAM protein 
+cluster-2-1	TIGR04517	radical SAM family RiPP maturation amino acid epimerase 
+cluster-2-2	TIGR00538	oxygen-independent coproporphyrinogen III oxidase 
+cluster-2-2	TIGR00539	radical SAM family heme chaperone HemW 
+cluster-2-2	TIGR01211	tRNA uridine(34) 5-carboxymethylaminomethyl modification radical SAM/GNAT enzyme Elp3 
+cluster-2-2	TIGR03994	coproporphyrinogen dehydrogenase HemZ 
+cluster-2-2	TIGR04107	heme anaerobic degradation radical SAM methyltransferase ChuW/HutW 
+cluster-2-3	TIGR00089	MiaB/RimO family radical SAM methylthiotransferase 
+cluster-2-3	TIGR01125	30S ribosomal protein S12 methylthiotransferase RimO 
+cluster-2-3	TIGR01574	tRNA (N6-isopentenyl adenosine(37)-C2)-methylthiotransferase MiaB 
+cluster-2-3	TIGR01578	tRNA (N(6)-L-threonylcarbamoyladenosine(37)-C(2))-methylthiotransferase 
+cluster-2-3	TIGR01579	tRNA (N(6)-L-threonylcarbamoyladenosine(37)-C(2))-methylthiotransferase MtaB 
+cluster-2-4	TIGR01211	tRNA uridine(34) 5-carboxymethylaminomethyl modification radical SAM/GNAT enzyme Elp3 
+cluster-2-4	TIGR01212	TIGR01212 family radical SAM protein 
+cluster-2-5	TIGR01210	archaeosine biosynthesis radical SAM protein RaSEA 
+cluster-3-1	TIGR02493	pyruvate formate lyase-activating protein
+cluster-3-1	TIGR02494	glycyl-radical enzyme activating protein
+cluster-3-1	TIGR04003	[benzylsuccinate synthase]-activating enzyme
+cluster-3-1	TIGR04041	YjjW family glycine radical enzyme activase
+cluster-3-1	TIGR04395	choline TMA-lyase-activating enzyme
+cluster-3-2	TIGR03365	7-carboxy-7-deazaguanine synthase QueE
+cluster-3-2	TIGR03963	putative 7-carboxy-7-deazaguanine synthase QueE
+cluster-3-2	TIGR04322	7-carboxy-7-deazaguanine synthase QueE
+cluster-3-2	TIGR04349	7-carboxy-7-deazaguanine synthase QueE
+cluster-3-2	TIGR04508	7-carboxy-7-deazaguanine synthase
+cluster-3-3	TIGR04295	TIGR04295 family B12-binding domain-containing radical SAM protein 
+cluster-3-4	TIGR04337	AmmeMemoRadiSam system radical SAM enzyme
+cluster-3-5	TIGR02491	anaerobic ribonucleoside-triphosphate reductase activating protein
+cluster-4-1	TIGR00423	CofH family radical SAM protein
+cluster-4-1	TIGR03550	7,8-didemethyl-8-hydroxy-5-deazariboflavin synthase CofG
+cluster-4-1	TIGR03551	5-amino-6-(D-ribitylamino)uracil--L-tyrosine 4-hydroxyphenyl transferase CofH
+cluster-4-1	TIGR03699	dehypoxanthine futalosine cyclase
+cluster-4-1	TIGR03700	aminofutalosine synthase MqnE
+cluster-4-2	TIGR00433	biotin synthase BioB
+cluster-4-3	TIGR03910	methylornithine synthase PylB
+cluster-4-3	TIGR03956	[FeFe] hydrogenase H-cluster radical SAM maturase HydE
+cluster-4-4	TIGR02351	2-iminoacetate synthase ThiH
+cluster-4-4	TIGR03955	[FeFe] hydrogenase H-cluster radical SAM maturase HydG
+cluster-4-6	TIGR04043	MSMEG_0568 family radical SAM protein
+cluster-4-9	TIGR03957	5,10-methenyltetrahydromethanopterin hydrogenase cofactor biosynthesis protein HmdB
+cluster-5	TIGR00048	23S rRNA (adenine(2503)-C(2))-methyltransferase RlmN
+cluster-6-1	TIGR04470	radical SAM mobile pair protein B
+cluster-6-1	TIGR04471	radical SAM mobile pair protein A
+cluster-6-2	TIGR04070	spore photoproduct lyase
+cluster-6-3	TIGR04471	radical SAM mobile pair protein A
+cluster-7	TIGR00238	KamA family radical SAM protein
+cluster-7	TIGR03820	lysine 2,3-aminomutase
+cluster-7	TIGR03821	EF-P beta-lysylation protein EpmB
+cluster-7	TIGR03822	lysine-2,3-aminomutase-like protein
+cluster-7	TIGR04368	glutamate 2,3-aminomutase
+cluster-7	TIGR04468	arginine 2,3-aminomutase
+cluster-8	TIGR00510	lipoyl synthase
+cluster-9	TIGR03972	4-demethylwyosine synthase TYW1

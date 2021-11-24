@@ -1,0 +1,22 @@
+1	7-carboxy-7-deazaguanine synthase-like	#00a1a4
+2	Oxygen-independent coproporphyrinogen III oxidase-like	#ff0000
+3	Viperin	#0000a3
+4	Avilamycin synthase	#ff8eac
+5	B12-binding domain containing	#0033ff
+6	BATS domain containing	#ffa300
+7	DesII-like	#d0a9ff
+8	Elongator protein-like	#000000
+9	F420, menaquinone cofactor biosynthesis	#a225a8
+10	FeMo-cofactor biosynthesis protein	#d2ffd2
+11	Lipoyl synthase-like / Lipoyl synthase	#fffb00
+12	Methylthiotransferase	#736f00
+13	Methyltransferase Class A	#720600
+14	Methyltransferase Class D	#ffd3d2
+15	Organic radical activating enzymes	#00ffff
+16	PLP-dependent/Lys aminomutase, Glu aminomutase	#13a000
+17	SPASM/twitch domain containing	#ff00ff
+18	Spectinomymycin biosynthesis	#000000
+19	Spore photoproduct lyase-like	#26fa00
+20	tRNA wybutosine-synthesizing	#a57000
+mj0683	Protein MJ0683-like	#d5fb00
+upf0313	UPF0313	#a6a100
