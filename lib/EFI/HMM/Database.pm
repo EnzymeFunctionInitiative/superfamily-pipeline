@@ -31,6 +31,8 @@ sub new {
     $self->{dbh} = getHandle($self->{sqlite}, $self->{dryrun});
     $self->{insert_count} = 0;
 
+    $self->{uniref_version} = $args{uniref_version} // 90;
+
     return $self;
 }
 
@@ -56,6 +58,7 @@ sub validateInputs {
         "load-id-list-script=s",
         "load-diced",
         "load-tigr-file=s",
+        "load-tigr-names=s",
         "load-region-file=s",
         "load-netinfo-file=s",
         "load-dicing-file=s",
@@ -67,6 +70,7 @@ sub validateInputs {
         "job-id-file=s",
         "append-to-db", # don't recreate the table if it already exists
         "dryrun|dry-run",
+        "uniref-version=i",
     );
 
     die &$getUsageFn("require --sqlite-file argument") if not $opts{"sqlite-file"};
@@ -87,6 +91,7 @@ sub validateInputs {
     $parms{load_id_list_script} = $opts{"load-id-list-script"} // "";
     $parms{load_diced} = defined $opts{"load-diced"} ? 1 : 0;
     $parms{load_tigr_file} = $opts{"load-tigr-file"} // "";
+    $parms{load_tigr_names} = $opts{"load-tigr-names"} // "";
     $parms{load_region_file} = $opts{"load-region-file"} // "";
     $parms{load_netinfo_file} = $opts{"load-netinfo-file"} // "";
     $parms{load_dicing_file} = $opts{"load-dicing-file"} // "";
@@ -98,6 +103,7 @@ sub validateInputs {
     $parms{job_id_file} = $opts{"job-id-file"} // "";
     $parms{append_to_db} = $opts{"append-to-db"} // "";
     $parms{dryrun} = $opts{"dryrun"} // "";
+    $parms{uniref_version} = $opts{"uniref-version"} // 90;
 
     return \%parms;
 }
@@ -273,12 +279,18 @@ SCRIPT
     $self->createTable("${dicedPrefix}id_mapping");
     $self->createTable("${dicedPrefix}id_mapping_uniref50");
     $self->createTable("${dicedPrefix}id_mapping_uniref90");
-    @src = ("uniprot", "uniref50", "uniref90");
+
+    @src = ("uniprot");
+    push @src, "uniref50" if $self->{uniref_version} == 50;
+    push @src, "uniref90";
 
     my $masterLoadFileName = "${loadScript}_load_ids";
     unlink "${masterLoadFileName}_uniprot.txt";
-    unlink "${masterLoadFileName}_uniref50.txt";
+    `touch ${masterLoadFileName}_uniprot.txt`; # empty file so we can avoid errors later
+    unlink "${masterLoadFileName}_uniref50.txt" if $self->{uniref_version} == 50;
+    `touch ${masterLoadFileName}_uniref50.txt` if $self->{uniref_version} == 50; # empty file so we can avoid errors later
     unlink "${masterLoadFileName}_uniref90.txt";
+    `touch ${masterLoadFileName}_uniref90.txt`; # empty file so we can avoid errors later
 
     my $processFn = sub {
         my $dir = shift;
@@ -342,15 +354,23 @@ SCRIPT
         foreach my $dir (@dirs) {
             &$processFn($dir);
         }
+        if (not scalar @dirs) {
+        }
     }
 
     print $outFh <<SCRIPT;
 
 echo '.import "${masterLoadFileName}_uniprot.txt" ${dicedPrefix}id_mapping' >> $loadSqlFile
+SCRIPT
+    if ($self->{uniref_version} == 50) {
+        print $outFh <<SCRIPT;
 echo '.import "${masterLoadFileName}_uniref50.txt" ${dicedPrefix}id_mapping_uniref50' >> $loadSqlFile
+SCRIPT
+    }
+    print $outFh <<SCRIPT;
 echo '.import "${masterLoadFileName}_uniref90.txt" ${dicedPrefix}id_mapping_uniref90' >> $loadSqlFile
 
-echo "WRAP UP BY EXECUTING sqlite3 $self->{sqlite} < $loadSqlFile"
+#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
 
 SCRIPT
 
@@ -461,7 +481,11 @@ sub taxonomyToSqlite {
     while (<$fh>) {
         chomp;
         #my ($clusterId, $upId, @taxonomyVals) = split(m/\t/);
-        my $valStr = join(", ", map { "\"$_\"" } split(m/\t/, $_, -1));
+        my @vals = split(m/\t/, $_, -1);
+        if ($#vals < 9) {
+            map { push(@vals, "") } (1..(9-$#vals));
+        }
+        my $valStr = join(", ", map { "\"$_\"" } @vals);
         my $sql = "INSERT INTO taxonomy (uniprot_id, tax_id, domain, kingdom, phylum, class, taxorder, family, genus, species) VALUES ($valStr)";
         $self->batchInsert($sql);
     }
@@ -591,22 +615,8 @@ sub convRatioToSqlite {
     my $mainDataDir = shift;
     my $loadScript = shift;
     my $isDiced = shift || 0;
-    my $jobIdListFile = shift || 0;
 
     my $loadSqlFile = $loadScript . "_load.sql";
-
-    my $clusters;
-    if ($jobIdListFile) {
-        $clusters = {};
-        my $handleIdFn = sub {
-            my ($cluster, $parms) = @_;
-            my $info = IdListParser::getClusterNumbers($cluster, $parms);
-            foreach my $key (keys %$info) {
-                $clusters->{$key} = $info->{$key};
-            }
-        };
-        IdListParser::parseFile($jobIdListFile, $handleIdFn);
-    }
 
     open my $outFh, ">", $loadScript or die "Unable to write to conv ratio script file $loadScript: $!";
 
@@ -633,14 +643,7 @@ SCRIPT
         my $ascoreCol = $ascore ? "\t$ascore" : "";
         foreach my $dir (@$dataDirs) {
             (my $clusterId = $dir) =~ s%^.*(cluster[\-\d]+).*?$%$1%;
-            #print "$clusterId " . ($clusters->{$clusterId} ? "Y" : "N") . "\n";
-            #return if ($clusters and not $clusters->{$clusterId});
             my $crFile = "$dir/conv_ratio.txt";
-####sed 's/^\\([0-9]\\+\\)/$clusterId-\\1$ascoreCol/' $crFile | awk 'NR>1 {print \$0;}' > $crFile.load
-#echo "############## PROCESSING $crFile"
-#sed 's/^\\([0-9]\\+\\)/$clusterId$ascoreCol/' $crFile | awk 'NR$compOp {print \$0;}' > $crFile.load
-#echo 'SELECT "LOADING $crFile.load";' >> $loadSqlFile
-#echo '.import "$crFile.load" ${dicedPrefix}conv_ratio' >> $loadSqlFile
             print $outFh <<SCRIPT;
 sed 's/^\\([0-9]\\+\\)/$clusterId$ascoreCol/' $crFile | awk 'NR$compOp {print \$0;}' >> $masterLoadFile
 SCRIPT
@@ -681,7 +684,7 @@ SCRIPT
 
 echo '.import "${masterLoadFile}" ${dicedPrefix}conv_ratio' >> $loadSqlFile
 
-echo "WRAP UP BY EXECUTING sqlite3 $self->{sqlite} < $loadSqlFile"
+#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
 
 SCRIPT
 
@@ -695,7 +698,6 @@ sub consResToSqlite {
     my $mainDataDir = shift;
     my $loadScript = shift;
     my $isDiced = shift || 0;
-    my $jobIdListFile = shift || 0;
 
     my $loadSqlFile = $loadScript . "_load.sql";
 
@@ -744,7 +746,8 @@ SCRIPT
 
 echo 'SELECT "LOADING $masterCrLoadFile";' >> $loadSqlFile
 echo '.import "$masterCrLoadFile" ${dicedPrefix}cons_res' >> $loadSqlFile
-echo "WRAP UP BY EXECUTING sqlite3 $self->{sqlite} < $loadSqlFile"
+
+#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
 
 SCRIPT
 
@@ -760,13 +763,13 @@ sub networkSizeToSqlite {
     $self->createTable("diced_size");
     $self->createTable("size");
 
-    my ($dicedSizes, $primaryDicedSizes) = $self->computeDicedClusterSizes();
+    my ($dicedSizes, $parentSizeData) = $self->computeDicedClusterSizes();
     my $sizes = $self->computeClusterSizes();
 
-    foreach my $dicedId (keys %$primaryDicedSizes) {
-        foreach my $sizeKey (keys %{ $primaryDicedSizes->{$dicedId} }) {
-            if ($primaryDicedSizes->{$dicedId}->{$sizeKey}) {
-                $sizes->{$dicedId}->{$sizeKey} = $primaryDicedSizes->{$dicedId}->{$sizeKey};
+    foreach my $dicedId (keys %$parentSizeData) {
+        foreach my $sizeKey (keys %{ $parentSizeData->{$dicedId} }) {
+            if ($parentSizeData->{$dicedId}->{$sizeKey}) {
+                $sizes->{$dicedId}->{$sizeKey} = $parentSizeData->{$dicedId}->{$sizeKey};
             }
         }
     }
@@ -779,7 +782,7 @@ sub networkSizeToSqlite {
 sub computeDicedClusterSizes {
     my $self = shift;
 
-    my $idSql = "SELECT cluster_id, ascore, parent_id FROM diced_network";
+    my $idSql = "SELECT cluster_id, ascore, parent_id, parent_ascore FROM diced_network";
     my %ascore;
     my $sth = $self->{dbh}->prepare($idSql);
     warn "Unable to prepare $idSql; ignoring" and return if not $sth;
@@ -788,20 +791,27 @@ sub computeDicedClusterSizes {
     $sth->execute;
     while (my $row = $sth->fetchrow_hashref) {
         my $pid = $row->{parent_id};
-        push @{$ascore{"$pid-$row->{ascore}"}}, $row->{cluster_id};
-        $primaryAscore{$pid} = $row->{ascore} if not exists $primaryAscore{$pid};
+        my $asid = "$pid-$row->{ascore}";
+        $ascore{$asid}->{parent} = $pid;
+        $ascore{$asid}->{ascore} = $row->{ascore};
+        push @{ $ascore{$asid}->{clusters} }, $row->{cluster_id};
+        $primaryAscore{$pid} = $row->{parent_ascore} if not exists $primaryAscore{$pid};
     }
 
     my $tableBase = "diced_id_mapping";
     my $data = {};
-    my $primaryData = {}; # What is the size of Mega-#-# when it's not diced?
+    my $parentSizeData = {}; # What is the size of Mega-#-# when it's not diced?
     foreach my $type ("uniprot", "uniref50", "uniref90") {
         my $table = $type eq "uniprot" ? $tableBase : "${tableBase}_$type";
-        foreach my $ascoreKey (keys %ascore) {
-            (my $parent = $ascoreKey) =~ s/\-\d+$//;
-            (my $ascore = $ascoreKey) =~ s/^.*-(\d+)$/$1/;
+        #foreach my $ascoreKey (keys %ascore) {
+        foreach my $asid (keys %ascore) {
+            my $parent = $ascore{$asid}->{parent};
+            my $ascore = $ascore{$asid}->{ascore};
+            #(my $parent = $ascoreKey) =~ s/\-\d+$//;
+            #(my $ascore = $ascoreKey) =~ s/^.*-(\d+)$/$1/;
             my $total = 0;
-            foreach my $cluster (@{$ascore{$ascoreKey}}) {
+            #foreach my $cluster (@{$ascore{$ascoreKey}}) {
+            foreach my $cluster (@{ $ascore{$asid}->{clusters} }) {
                 my $col = "${type}_id";
                 my $sql = "SELECT $col FROM $table WHERE cluster_id = '$cluster' AND ascore = '$ascore'";
                 my $sth = $self->{dbh}->prepare($sql);
@@ -812,12 +822,12 @@ sub computeDicedClusterSizes {
                 }
             }
             if ($primaryAscore{$parent} and $primaryAscore{$parent} == $ascore) {
-                $primaryData->{$parent}->{$type} = $total;
+                $parentSizeData->{$parent}->{$type} = $total;
             }
         }
     }
 
-    return ($data, $primaryData);
+    return ($data, $parentSizeData);
 }
 
 
@@ -992,9 +1002,9 @@ sub insertNetworkData {
         if ($net->{regions}) {
             $self->insertRegionData($clusterId, $net->{regions});
         }
-        if ($net->{tigr_families}) {
-            $self->insertTigrDataForCluster($clusterId, $net->{tigr_families});
-        }
+        #if ($net->{tigr_families}) {
+        #    $self->insertTigrDataForCluster($clusterId, $net->{tigr_families});
+        #}
     }
 }
 
@@ -1009,14 +1019,15 @@ sub netinfoToSqlite {
     open my $fh, "<", $file or die "Unable to read netinfo file $file: $!";
     while (<$fh>) {
         chomp;
-        my ($clusterId, $name, $title, $desc) = split(m/\t/, $_, -1);
+        my ($clusterId, $name, $title, $desc, $parentId) = split(m/\t/, $_, -1);
         $data{$clusterId} = {title => $title, name => $name, desc => $desc};
+        $data{$clusterId}->{parent} = $parentId if $parentId;
     }
     close $fh;
 
     foreach my $clusterId (keys %data) {
         my @p = split(m/-/, $clusterId);
-        next if scalar @p < 3;
+        next if scalar @p < 3 or $data{$clusterId}->{parent};
         my $parent = join("-", @p[0..($#p-1)]);
         if ($data{$parent}) {
             $data{$clusterId}->{parent} = $parent;
@@ -1090,9 +1101,9 @@ sub dicingToSqlite {
         chomp;
         next if m/^\s#/;
         next if m/^\s*$/;
-        my ($parentId, $ascore, $clusterId) = split(m/\t/, $_, -1);
-        my $valStr = join(", ", getStrVal($clusterId), getStrVal($ascore), getStrVal($parentId));
-        my $sql = "INSERT INTO diced_network (cluster_id, ascore, parent_id) VALUES ($valStr)";
+        my ($parentId, $parentAscore, $ascore, $clusterId) = split(m/\t/, $_, -1);
+        my $valStr = join(", ", getStrVal($clusterId), getStrVal($ascore), getStrVal($parentId), getStrVal($parentAscore));
+        my $sql = "INSERT INTO diced_network (cluster_id, ascore, parent_id, parent_ascore) VALUES ($valStr)";
         $self->batchInsert($sql);
     }
 }
@@ -1138,58 +1149,155 @@ SQL
 
 sub readTigrData {
     my $self = shift;
-    my $file = shift;
+    my $idFile = shift;
+    my $nameFile = shift;
 
-    my $data = {};
-    open my $fh, "<", $file or die "Unable to read TIGR data file $file: $!";
+    my $names = {};
+    open my $nameFh, "<", $nameFile or die "Unable to read TIGR name file $nameFile: $!";
+    while (<$nameFh>) {
+        chomp;
+        my ($famId, $famDesc) = split(m/\t/);
+        $names->{$famId} = $famDesc;
+    }
+    close $nameFh;
+
+    #my $selectFn = sub {
+    #    my $tableName = shift;
+    #    my $uniProtId = shift;
+    #    my $famId = shift;
+    #    my $data = shift;
+    #    my $useAscore = shift // 0;
+
+    #    my $ascoreCol = $useAscore ? ", ascore" : "";
+    #    my $sql = "SELECT cluster_id $ascoreCol FROM $tableName WHERE uniprot_id = '$uniProtId'";
+    #    my $sth = $self->{dbh}->prepare($sql);
+    #    $sth->execute;
+
+    #    my $row = $sth->fetchrow_hashref;
+    #    if ($row) {
+    #        my $clusterId = $row->{cluster_id};
+    #        if ($useAscore) {
+    #            $data->{$clusterId}->{$row->{ascore}}->{$famId} = 1;
+    #        } else {
+    #            $data->{$clusterId}->{$famId} = 1;
+    #        }
+    #    }
+    #};
+
+    #my $data = {};
+    #my $dicedData = {};
+    my $idMap = {};
+
+    open my $fh, "<", $idFile or die "Unable to read TIGR data file $idFile: $!";
     while (<$fh>) {
         chomp;
-        my ($clusterId, $famId, $famDesc) = split(m/\t/, $_, -1);
-        push @{$data->{$clusterId}}, {id => $famId, description => $famDesc};
+        #my ($clusterId, $famId, $famDesc) = split(m/\t/, $_, -1);
+        #push @{$data->{$clusterId}}, {id => $famId, description => $famDesc};
+        my ($uniProtId, $famId) = split(m/\t/);
+        #&$selectFn("id_mapping", $uniProtId, $famId, $data, 0);
+        #&$selectFn("diced_id_mapping", $uniProtId, $famId, $dicedData, 0);
+        $idMap->{$uniProtId} = $famId;
+
     }
     close $fh;
 
-    return $data;
+    #return {id_map => $idMap, cluster_id_map => $data, diced_cluster_id_map => $dicedData, names => $names};
+    return {id_map => $idMap, names => $names};
 }
 
 
-sub insertTigrDataForCluster {
+#sub insertTigrDataForCluster {
+#    my $self = shift;
+#    my $clusterId = shift;
+#    my $data = shift;
+#
+#    foreach my $famInfo (@$data) {
+#        $self->insertClusterTigrDataRow($clusterId, $famInfo->{id});
+#    }
+#}
+
+
+sub insertTigrClusterDataRow {
     my $self = shift;
     my $clusterId = shift;
-    my $data = shift;
+    my $uniProtId = shift;
+    my $ascore = shift // 0;
 
-    foreach my $famInfo (@$data) {
-        $self->insertTigrDataRow($clusterId, $famInfo->{id});
-    }
+    my @vals = (getStrVal($clusterId), getStrVal($uniProtId), getStrVal("TIGR"));
+    push @vals, $ascore if $ascore;
+    my $valStr = join(", ", @vals);
+
+    my @cols = ("cluster_id", "family", "family_type");
+    push @cols, "ascore" if $ascore;
+    my $colStr = join(",", @cols);
+
+    my $tableName = $ascore ? "families_diced" : "families";
+    my $sql = "INSERT INTO $tableName ($colStr) VALUES ($valStr)";
+    $self->batchInsert($sql);
 }
 
 
 sub insertTigrDataRow {
     my $self = shift;
-    my $clusterId = shift;
-    my $data = shift;
+    my $uniProtId = shift;
+    my $famId = shift;
 
-    my $valStr = join(", ", getStrVal($clusterId), getStrVal($data->{id}), getStrVal("TIGR"));
-    my $sql = "INSERT INTO families (cluster_id, family, family_type) VALUES ($valStr)";
+    my @vals = (getStrVal($uniProtId), getStrVal($famId));
+    my $valStr = join(", ", @vals);
+
+    my @cols = ("uniprot_id", "tigr");
+    my $colStr = join(",", @cols);
+
+    my $tableName = "tigr";
+    my $sql = "INSERT INTO $tableName ($colStr) VALUES ($valStr)";
     $self->batchInsert($sql);
-    if ($data->{description}) {
-        $valStr = join(", ", getStrVal($data->{id}), getStrVal($data->{description}));
-        $sql = "INSERT OR IGNORE INTO family_info (family, description) VALUES ($valStr)";
-        $self->batchInsert($sql);
-    }
 }
 
 
 sub insertTigrData {
     my $self = shift;
-    my $data = shift;
+    my $shared = shift;
 
-    $self->createTable("families");
+    #$self->createTable("families");
+    #$self->createTable("families_diced");
+    $self->createTable("tigr");
+
+    my $insertData = sub {
+        my $data = shift;
+        foreach my $id (keys %$data) {
+            $self->insertTigrDataRow($id, $data->{$id});
+        }
+    };
+    # Don't use right now
+    my $insertClusterData = sub {
+        my $data = shift;
+        my $isDiced = shift // 0;
+        foreach my $clusterId (sort keys %$data) {
+            if ($isDiced) {
+                foreach my $ascore (keys %{$data->{$clusterId}}) {
+                    foreach my $famId (keys %{$data->{$clusterId}->{$ascore}}) {
+                        $self->insertClusterTigrDataRow($clusterId, $famId, $ascore);
+                    }
+                }
+            } else {
+                foreach my $famId (keys %{$data->{$clusterId}}) {
+                    $self->insertClusterTigrDataRow($clusterId, $famId, 0);
+                }
+            }
+        }
+    };
+
+    &$insertData($shared->{id_map});
+    #&$insertClusterData($shared->{cluster_id_map}, 1);
+    #&$insertClusterData($shared->{diced_cluster_id_map}, 1);
+
     $self->createTable("family_info");
-
-    foreach my $clusterId (sort keys %$data) {
-        foreach my $row (@{$data->{$clusterId}}) {
-            $self->insertTigrDataRow($clusterId, $row);
+    if ($shared->{names}) {
+        my $names = $shared->{names};
+        foreach my $famId (keys %$names) {
+            my $valStr = join(", ", getStrVal($famId), getStrVal($names->{$famId}));
+            my $sql = "INSERT OR IGNORE INTO family_info (family, description) VALUES ($valStr)";
+            $self->batchInsert($sql);
         }
     }
 }
@@ -1221,10 +1329,12 @@ sub createTable {
         "swissprot" => ["uniprot_id TEXT", "function TEXT", "UNIQUE(uniprot_id, function)"],
         "kegg" => ["uniprot_id TEXT", "kegg TEXT"],
         "pdb" => ["uniprot_id TEXT", "pdb TEXT"],
+        "tigr" => ["uniprot_id TEXT", "tigr TEXT"],
         "taxonomy" => ["uniprot_id TEXT", "tax_id TEXT", "domain TEXT", "kingdom TEXT", "phylum TEXT", "class TEXT", "taxorder TEXT", "family TEXT", "genus TEXT", "species TEXT"],
         "sfld_desc" => ["sfld_id TEXT", "sfld_desc TEXT", "sfld_color TEXT"],
         "sfld_map" => ["cluster_id TEXT", "sfld_id TEXT"],
         "families" => ["cluster_id TEXT", "family TEXT", "family_type TEXT"],
+#        "families_diced" => ["cluster_id TEXT", "ascore INT", "family TEXT", "family_type TEXT"],
         "family_info" => ["family TEXT PRIMARY KEY", "description TEXT"],
         "uniref_map" => ["uniprot_id TEXT", "uniref90_id TEXT", "uniref50_id TEXT"],
         "conv_ratio" => ["cluster_id TEXT", "conv_ratio REAL", "num_ids INT", "num_blast INT", "node_conv_ratio REAL", "num_nodes INT", "num_edges INT"],
@@ -1232,7 +1342,7 @@ sub createTable {
         "annotations" => ["uniprot_id TEXT", "doi TEXT"],
         
         "diced_size" => ["cluster_id TEXT", "ascore INT", "uniprot INT DEFAULT 0", "uniref90 INT DEFAULT 0", "uniref50 INT DEFAULT 0"],
-        "diced_network" => ["cluster_id TEXT", "ascore INT", "parent_id TEXT"],
+        "diced_network" => ["cluster_id TEXT", "ascore INT", "parent_id TEXT", "parent_ascore INT"],
         "diced_id_mapping" => ["cluster_id TEXT", "ascore INT", "uniprot_id TEXT"],
         "diced_id_mapping_uniref50" => ["cluster_id TEXT", "ascore INT", "uniref50_id TEXT"],
         "diced_id_mapping_uniref90" => ["cluster_id TEXT", "ascore INT", "uniref90_id TEXT"],
@@ -1249,9 +1359,11 @@ sub createTable {
         "id_mapping_uniref90" => [{name => "id_mapping_uniref90_id_idx", cols => "uniref90_id"}, {name => "id_mapping_uniref90_cluster_id_idx", cols => "cluster_id"}],
         "swissprot" => [{name => "swissprot_uniprot_id_idx", cols => "uniprot_id"}],
         "kegg" => [{name => "kegg_uniprot_id_idx", cols => "uniprot_id"}],
+        "tigr" => [{name => "tigr_uniprot_id_idx", cols => "uniprot_id"}],
         "pdb" => [{name => "pdb_uniprot_id_idx", cols => "uniprot_id"}],
         "taxonomy" => [{name => "taxonomy_tax_uniprot_idx", cols => "uniprot_id"}, {name => "taxonomy_tax_id_idx", cols => "tax_id"}, {name => "taxonomy_domain_idx", cols => "domain"}, {name => "taxonomy_kingdom_idx", cols => "kingdom"}, {name => "taxonomy_phylum_idx", cols => "phylum"}, {name => "taxonomy_class_idx", cols => "class"}, {name => "taxonomy_taxorder_idx", cols => "taxorder"}, {name => "taxonomy_family_idx", cols => "family"}, {name => "taxonomy_genus_idx", cols => "genus"}, {name => "taxonomy_species_idx", cols => "species"}, {name => "taxonomy_uniprot_id_idx", cols => "uniprot_id"}],
         "families" => [{name => "families_cluster_id_idx", cols => "cluster_id"}],
+#        "families_diced" => [{name => "families_cluster_id_idx", cols => "cluster_id, ascore"}],
         "family_info" => [{name => "family_info_name_idx", cols => "family"}],
         "uniref_map" => [{name => "uniref_map_up_idx", cols => "uniprot_id"}, {name => "uniref_map_ur90_idx", cols => "uniref90_id"}, {name => "uniref_map_ur50_idx", cols => "uniref50_id"}],
         "conv_ratio" => [{name => "conv_ratio_cluster_id", cols => "cluster_id"}],
@@ -1259,7 +1371,7 @@ sub createTable {
         "annotations" => [{name => "uniprot_id", cols => "uniprot_id"}],
         
         "diced_size" => [{name => "diced_size_cluster_id_idx", cols => "cluster_id, ascore"}],
-        "diced_network" => [{name => "diced_cluster_id", cols => "cluster_id, ascore"}, {name => "diced_parent_id", cols => "parent_id"}],
+        "diced_network" => [{name => "diced_cluster_id", cols => "cluster_id"}, {name => "diced_parent_id", cols => "parent_id"}, {name => "diced_ascore", cols => "ascore"}],
         "diced_id_mapping" => [{name => "diced_id_mapping_uniprot_id_idx", cols => "uniprot_id"}, {name => "id_mapping_diced_cluster_id_idx", cols => "cluster_id, ascore"}, {name => "id_mapping_diced_uniprot_ascore_idx", cols => "uniprot_id, ascore"}],
         "diced_id_mapping_uniref50" => [{name => "id_mapping_diced_uniref50_id_idx", cols => "uniref50_id"}, {name => "diced_id_mapping_uniref50_cluster_id_idx", cols => "cluster_id, ascore"}],
         "diced_id_mapping_uniref90" => [{name => "id_mapping_diced_uniref90_id_idx", cols => "uniref90_id"}, {name => "diced_id_mapping_uniref90_cluster_id_idx", cols => "cluster_id, ascore"}],

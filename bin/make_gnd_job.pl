@@ -14,12 +14,13 @@ use IdListParser;
 my $AppDir = $FindBin::Bin;
 
 
-my ($dataDir, $scriptFile, $dbFile, $tempDir, $dbVer, $mapTablesOnly);
+my ($scriptFile, $dbFile, $tempDir, $dbVer, $mapTablesOnly);
+#my ($dataDir, $scriptFile, $dbFile, $tempDir, $dbVer, $mapTablesOnly);
 my ($mapFile, $appendMapFile, $mapFileUniRef90, $appendMapFileUniRef90, $mapFileUniRef50, $appendMapFileUniRef50);
 #my ($dataDir, $jobIdListFile, $scriptFile, $dbFile, $tempDir, $isDiced, $dbVer, $mapFile, $mapFileUniRef90, $dicedIdDir, $dicedOutputDir, $mapTablesOnly);
 #my ($dataDir, $jobIdListFile, $scriptFile, $dbFile, $tempDir, $isDiced, $dbVer, $mapFile, $dicedIdDir, $dicedOutputDir, $dicedScriptDir);
 my $result = GetOptions(
-    "data-dir=s"            => \$dataDir,
+#    "data-dir=s"            => \$dataDir,
     "script-file=s"         => \$scriptFile,
     "output-db=s"           => \$dbFile,
     "gnd-temp-dir=s"        => \$tempDir,
@@ -33,7 +34,7 @@ my $result = GetOptions(
     "make-map-tables-only"  => \$mapTablesOnly,
 );
 
-die "Need --data-dir" if not $dataDir or not -d $dataDir;
+#die "Need --data-dir" if not $dataDir or not -d $dataDir;
 die "Need --script-file" if not $scriptFile;
 die "Need --output-db" if not $dbFile;
 die "Need --gnd-temp-dir" if not $tempDir or not -d $tempDir;
@@ -146,7 +147,13 @@ SCRIPT
 UNIREFIDS="\$BASEDIR/uniref_ids.txt"
 IDFILE="\$BASEDIR/sorted_ids"
 IDFILE90="\$BASEDIR/sorted_ids_uniref90"
+SCRIPT
+    if ($mapFileUniRef50) {
+        $script .= <<SCRIPT;
 IDFILE50="\$BASEDIR/sorted_ids_uniref50"
+SCRIPT
+    }
+    $script .= <<SCRIPT;
 
 mkdir -p \$BASEDIR
 
@@ -198,8 +205,8 @@ create_diagram_db.pl \\
     --db-file \$OUTDB \\
     --job-type ID_LOOKUP \\
     --no-neighbor-file \$BASEDIR/no_nb.txt \\
-    --nb-size 20 \\
-    --cluster-map \$IDFILE
+    --nb-size 20
+#    --cluster-map \$IDFILE
 
 SCRIPT
     }
@@ -208,9 +215,12 @@ SCRIPT
 
 \$APPDIR/make_gnd_cluster_map_tables.pl --db-file \$OUTDB --id-mapping \$IDFILE --seq-version uniprot --error-file \$BASEDIR/error.log
 \$APPDIR/make_gnd_cluster_map_tables.pl --db-file \$OUTDB --id-mapping \$IDFILE90 --seq-version uniref90 --error-file \$BASEDIR/error.log
-\$APPDIR/make_gnd_cluster_map_tables.pl --db-file \$OUTDB --id-mapping \$IDFILE50 --seq-version uniref50 --error-file \$BASEDIR/error.log
-
 SCRIPT
+    if ($mapFileUniRef50) {
+        $script .= <<SCRIPT;
+\$APPDIR/make_gnd_cluster_map_tables.pl --db-file \$OUTDB --id-mapping \$IDFILE50 --seq-version uniref50 --error-file \$BASEDIR/error.log
+SCRIPT
+    }
 
     return $script;
 }

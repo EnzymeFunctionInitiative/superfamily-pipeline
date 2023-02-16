@@ -3,21 +3,30 @@
 use strict;
 use warnings;
 
+use FindBin;
 use Getopt::Long;
 use Data::Dumper;
 use DBI;
-use Capture::Tiny qw(capture);
+
+use lib "$FindBin::Bin/../../lib";
+
+use AutoPipeline qw(do_mkdir do_sql get_job_dir update_job_status run_job get_num_running_jobs get_jobs_from_db);
 
 
 die "Needs EFI tools directory; the EFI_GNN environment variable must be set.\n" if not $ENV{EFI_GNN};
 die "Needs EFI tools directory; the EFI_EST environment variable must be set.\n" if not $ENV{EFI_EST};
 
 
-my ($jobMasterDir, $optAaList, $debug);
+my ($jobMasterDir, $optAaList, $optMinSeqMsa, $debug, $mode, $jobPrefix, $dryRun, $maxCrJobs);
 my $result = GetOptions(
-    "job-master-dir=s"      => \$jobMasterDir,
+    "master-dir=s"          => \$jobMasterDir,
     "opt-aa-list=s"         => \$optAaList,
     "debug"                 => \$debug,
+    "dry-run|dryrun"        => \$dryRun,
+    "mode=s"                => \$mode,
+    "min-cluster-size=i"    => \$optMinSeqMsa,
+    "job-prefix=s"          => \$jobPrefix,
+    "max-cr-jobs=i"         => \$maxCrJobs,
 );
 
 
@@ -28,106 +37,113 @@ die "No database connection\n" if not $dbh;
 
 my $caStartApp = "$ENV{EFI_GNN}/make_colorssn_job.pl";
 my $crStartApp = "$ENV{EFI_EST}/create_cluster_conv_ratio_job.pl";
-my @defaultArgs = ("--queue $ENV{EFI_QUEUE}");
+my @defaultArgs = ("--queue $ENV{EFI_QUEUE},$ENV{EFI_MEMQUEUE}");
 $optAaList = "C" if not $optAaList;
-
-my $asBaseOutDir = "$jobMasterDir/as_job";
-mkdir $asBaseOutDir;
-my $caBaseOutDir = "$jobMasterDir/ca_jobs";
-mkdir $caBaseOutDir;
-my $crBaseOutDir = "$jobMasterDir/cr_jobs";
-mkdir $crBaseOutDir;
+$optMinSeqMsa = 3 if not $optMinSeqMsa;
+$maxCrJobs = 5 if not $maxCrJobs;
 
 
-updateJobStatus($dbh, "as");
-updateJobStatus($dbh, "ca");
-updateJobStatus($dbh, "cr");
+open my $logFh, ">>", "$jobMasterDir/sql_log.txt";
+$logFh->print("=====================> Starting SQL log ", scalar(localtime), " <=====================\n\n");
+
+#my $lockFile = "$jobMasterDir/.lock";
+#print "Already running\n" and exit(0) if -e $lockFile;
+#`touch $lockFile`;
+
+my $checkFinishFileOnly = 1;
+update_job_status($dbh, "as_jobs", "stats.tab.completed", $dryRun, $logFh, undef, $checkFinishFileOnly);
+update_job_status($dbh, "ca_jobs", "1.out.completed", $dryRun, $logFh, \&checkNumNodes);
+update_job_status($dbh, "cr_jobs", "1.out.completed", $dryRun, $logFh);
 
 
-my @caJobs = getNewCAJobs($dbh);
+print "MODE $mode\n";
 
-foreach my $job (@caJobs) {
-    my $asid = $job->{as_id};
-    my $outDir = "$caBaseOutDir/output_$asid";
-    mkdir $outDir;
-    my $outSsn = "ssn.xgmml";
-
-    my @args = (@defaultArgs);
-    push @args, "--opt-msa-option CR,HMM,WEBLOGO";
-    push @args, "--opt-min-seq-msa 5";
-    push @args, "--opt-max-seq-msa 750";
-    push @args, "--opt-aa-list $optAaList";
-    push @args, "--ssn-in $job->{path}";
-    push @args, "--ssn-out $outSsn";
-    push @args, "--job-id $asid";
-
-    print "Running CA for $asid\n";
-    runJob($asid, \@args, $caStartApp, $outDir, "ca", "Color SSN job is:");
-}
-
-
-my @crJobs = getNewCRJobs($dbh);
-
-foreach my $job (@crJobs) {
-    my $asid = $job->{as_id};
-    # Start up a convergence ratio job
-    my $outDir = "$crBaseOutDir/output_$asid";
-    mkdir $outDir;
-
-    my @args = (@defaultArgs);
-    push @args, "--ssn-in $job->{path}";
-    push @args, "--output-path $outDir";
-    push @args, "--ascore $job->{ascore}";
-
-    print "Running CR for $asid\n";
-    runJob($asid, \@args, $crStartApp, $outDir, "cr", "Wait for BLAST job is");
-}
-
-
-
-
-
-
-
-sub runJob {
-    my $asid = shift;
-    my $args = shift;
-    my $startApp = shift;
-    my $outDir = shift;
-    my $pfx = shift;
-    my $grepText = shift;
-
-    my $appStart = $startApp . " " . join(" ", @$args);
-    my $cmd = <<CMD;
-source /etc/profile
-module load efiest/devlocal
-curdir=\$PWD
-cd $outDir
-$appStart
-CMD
-    print "$cmd\n" and return if $debug;
-
-    my ($result, $err) = capture { system($cmd); };
-    my @lines = split(m/[\n\r]+/, $result);
-    if (grep m/$grepText/, @lines) {
-        (my $jobNum = $lines[$#lines]) =~ s/\D//g;
-        my $sql = "UPDATE ${pfx}_jobs SET started = 1, job_id = $jobNum WHERE as_id = '$asid'";
-        $dbh->do($sql);
+if ($mode =~ m/ca/) {
+    my @caJobs = getNewCAJobs($dbh);
+    
+    my $maxCaJobs = 25;
+    my $caJobCount = get_num_running_jobs($dbh, "ca_jobs", $dryRun);
+    
+    if ($caJobCount >= $maxCaJobs) {
+        print "Too many running CA jobs to start any new ones.\n";
     } else {
-        print STDERR "Unable to submit $pfx $asid job: $result|$err\n";
+        foreach my $job (@caJobs) {
+            last if $caJobCount ++ > $maxCaJobs;
+        
+            my $asid = $job->{as_id};
+            my $uniref = $job->{uniref};
+            my $clusterId = $job->{cluster_id};
+            my $outDir = get_job_dir($jobMasterDir, $clusterId, $uniref) . "/ca_jobs/$asid";
+            do_mkdir($outDir, $dryRun);
+        
+            my $ssnIn = $job->{input_ssn_dir} . "/" . $job->{input_ssn_name};
+            my $ssnOut = "ssn.xgmml";
+        
+            my @args = (@defaultArgs);
+            push @args, "--opt-msa-option CR,HMM,WEBLOGO";
+            push @args, "--opt-min-seq-msa $optMinSeqMsa";
+            push @args, "--opt-max-seq-msa 750";
+            push @args, "--opt-aa-list $optAaList";
+            push @args, "--opt-aa-threshold 0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1";
+            push @args, "--ssn-in $ssnIn";
+            push @args, "--ssn-out $ssnOut";
+            my $jid = "${asid}_ca";
+            $jid = "${jobPrefix}_$jid" if $jobPrefix;
+            push @args, "--job-id $jid";
+        
+            print "Running CA for $asid\n";
+            my $jobNum = run_job($asid, \@args, $caStartApp, $outDir, "ca_jobs", "HMM and stuff job is:", $dryRun);
+            if ($jobNum) {
+                my $sql = "INSERT INTO ca_jobs (as_id, started, job_id, dir_path, ssn_name) VALUES ('$asid', 1, $jobNum, '$outDir/output', '$ssnOut')";
+                do_sql($sql, $dbh, $dryRun, $logFh);
+            }
+        }
     }
 }
 
- 
+#unlink($lockFile) and exit(0) if $noCr;
+
+if ($mode =~ m/cr/) {
+    my @crJobs = getNewCRJobs($dbh);
+    
+    my $crJobCount = get_num_running_jobs($dbh, "cr_jobs", $dryRun);
+    #my $crJobCount = get_running_jobs("wait_CR_");
+    
+    if ($crJobCount >= $maxCrJobs) {
+        print "Too many running CR jobs to start any new ones.\n";
+    } else {
+        foreach my $job (@crJobs) {
+            last if $crJobCount ++ > $maxCrJobs;
+        
+            my $asid = $job->{as_id};
+            my $uniref = $job->{uniref};
+            my $clusterId = $job->{cluster_id};
+            my $outDir = get_job_dir($jobMasterDir, $clusterId, $uniref) . "/cr_jobs/$asid";
+            do_mkdir($outDir, $dryRun);
+        
+            my $ssnIn = $job->{input_ssn_dir} . "/" . $job->{input_ssn_name};
+        
+            (my $crid = $asid) =~ s/(mega_|cluster_)//;
+            $crid =~ s/AS//;
+            $crid =~ s/ur//;
+            my @args = (@defaultArgs);
+            push @args, "--ssn-in $ssnIn";
+            push @args, "--output-path $outDir";
+            push @args, "--ascore $job->{ascore}";
+            push @args, "--job-id $crid";
+        
+            print "Running CR for $asid\n";
+            my $jobNum = run_job($asid, \@args, $crStartApp, $outDir, "cr_jobs", "Wait for BLAST job is", $dryRun);
+            if ($jobNum) {
+                my $sql = "INSERT INTO cr_jobs (as_id, started, job_id, dir_path) VALUES ('$asid', 1, $jobNum, '$outDir')";
+                do_sql($sql, $dbh, $dryRun, $logFh);
+            }
+        }
+    }
+}
 
 
-
-
-
-
-
-
-
+#unlink($lockFile);
 
 
 
@@ -136,104 +152,62 @@ CMD
 sub getNewCAJobs {
     my $dbh = shift;
 
+#    my $sql = <<SQL;
+#SELECT C.as_id AS as_id, A.dir_path AS input_ssn_dir, A.ssn_name AS input_ssn_name, A.cluster_id AS cluster_id, A.uniref
+#    FROM ca_jobs AS C
+#    LEFT JOIN as_jobs AS A ON C.as_id = A.as_id
+#WHERE A.finished = 1 AND (C.started = 0 OR C.started IS NULL)
+#SQL
     my $sql = <<SQL;
-SELECT C.as_id AS as_id, A.path AS path, A.ascore AS ascore
-    FROM ca_jobs AS C
-    LEFT JOIN as_jobs AS A ON C.as_id = A.as_id
+SELECT A.as_id AS as_id, A.dir_path AS input_ssn_dir, A.ssn_name AS input_ssn_name, A.cluster_id AS cluster_id, A.uniref
+    FROM as_jobs AS A
+    LEFT JOIN ca_jobs AS C ON A.as_id = C.as_id
 WHERE A.finished = 1 AND (C.started = 0 OR C.started IS NULL)
 SQL
-    return getNewJobs($sql);
+    return get_jobs_from_db($sql, $dbh, $dryRun, $logFh);
 }
 
 
 sub getNewCRJobs {
     my $dbh = shift;
 
+#    my $sql = <<SQL;
+#SELECT R.as_id AS as_id, C.dir_path AS input_ssn_dir, C.ssn_name AS input_ssn_name, A.ascore AS ascore, A.cluster_id AS cluster_id, A.uniref
+#    FROM cr_jobs AS R
+#    LEFT JOIN ca_jobs AS C ON R.as_id = C.as_id
+#    LEFT JOIN as_jobs AS A ON R.as_id = A.as_id
+#WHERE C.finished = 1 AND (R.started = 0 OR R.started IS NULL)
+#SQL
     my $sql = <<SQL;
-SELECT R.as_id AS as_id, C.path AS path, A.ascore AS ascore
-    FROM cr_jobs AS R
-    LEFT JOIN ca_jobs AS C ON R.as_id = C.as_id
-    LEFT JOIN as_jobs AS A ON R.as_id = A.as_id
-WHERE C.finished = 1 AND (R.started = 0 OR R.started IS NULL)
+SELECT C.as_id AS as_id, C.dir_path AS input_ssn_dir, C.ssn_name AS input_ssn_name, A.ascore AS ascore, A.cluster_id AS cluster_id, A.uniref
+    FROM ca_jobs AS C
+    LEFT JOIN cr_jobs AS R ON C.as_id = R.as_id
+    LEFT JOIN as_jobs AS A ON C.as_id = A.as_id
+WHERE C.finished = 1 AND C.max_cluster_size >= $optMinSeqMsa AND (R.started = 0 OR R.started IS NULL)
 SQL
-    return getNewJobs($sql);
+    return get_jobs_from_db($sql, $dbh, $dryRun, $logFh);
 }
 
 
-sub getNewJobs {
-    my $sql = shift;
+sub checkNumNodes {
+    my $job = shift;
 
-    my $sth = $dbh->prepare($sql);
-    $sth->execute;
+    my $dirPath = $job->{dir_path};
+    my $filePath = "$dirPath/cluster_sizes.txt";
+    my $colNum = 2; #0 = cluster number, 1 = uniprot cluster size, 2 = uniref90 cluster size
 
-    my @jobs;
-    while (my $row = $sth->fetchrow_hashref) {
-        push @jobs, {path => $row->{path}, as_id => $row->{as_id}, ascore => $row->{ascore}};
+    my $max = 0;
+
+    open my $fh, "<", $filePath or die "Unable to open $filePath to find num nodes";
+    scalar <$fh>;
+    while (my $line = <$fh>) {
+        chomp $line;
+        my @p = split(m/\t/, $line);
+        $max = $p[$colNum] if $p[$colNum] > $max;
     }
+    close $fh;
 
-    return @jobs;
-}
-
-
-sub updateJobStatus {
-    my $dbh = shift;
-    my $pfx = shift;
-
-    my $sql = "SELECT * FROM ${pfx}_jobs WHERE (finished IS NULL OR finished = 0)";
-    my $sth = $dbh->prepare($sql);
-    $sth->execute;
-
-    while (my $row = $sth->fetchrow_hashref) {
-        my $jobId = $row->{job_id};
-        my $dir = getOutputDir($row, $pfx);
-        my $path = "$dir/ssn.xgmml";
-        
-        my $finFileExists = 0;
-        if ($pfx eq "as") {
-            my $ascore = $row->{ascore};
-            $path = "$dir/auto_AS${ascore}_full_ssn.xgmml";
-            $finFileExists = -f "$dir/stats.tab.completed";
-        } else {
-            $finFileExists = -f "$dir/1.out.completed";
-        }
-
-        if ($jobId and isJobFinished($jobId) and $finFileExists) {
-            print "$row->{as_id} $pfx has finished\n";
-            my $sql = "UPDATE ${pfx}_jobs SET finished = 1, path = '$path' WHERE as_id = '$row->{as_id}'";
-            $dbh->do($sql);
-        }
-    }
-}
-
-
-sub isJobFinished {
-    my $id = shift;
-    my $cmd = "/usr/bin/sacct -n -j $id -o State";
-    my $result = `$cmd`;
-    my @lines = split(m/[\r\n]+/s, $result);
-    return 0 if not scalar @lines;
-    $lines[0] =~ s/\s//g;
-    return 1 if $lines[0] eq "COMPLETED";
-    return 0;
-}
-
-
-sub getOutputDir {
-    my $row = shift;
-    my $pfx = shift;
-
-    my $dir = "";
-
-    if ($pfx eq "ca") {
-        $dir = "$caBaseOutDir/output_$row->{as_id}/output";
-    } elsif ($pfx eq "cr") {
-        $dir = "$crBaseOutDir/output_$row->{as_id}/output";
-    } elsif ($pfx eq "as") {
-        my $localDir = "eval-$row->{ascore}-$row->{min_len}-$row->{max_len}";
-        $dir = "$asBaseOutDir/output/$localDir";
-    }
-
-    return $dir;
+    return ("max_cluster_size = $max");
 }
 
 

@@ -1,6 +1,8 @@
 #!/bin/env perl
 $! = 1;
 
+die "Needs EFI_TOOLS_HOME directory; the EFI_TOOLS environment variable must be set.\n" if not $ENV{EFI_TOOLS_HOME};
+
 use strict;
 use warnings;
 
@@ -10,7 +12,11 @@ use File::Find;
 use Data::Dumper;
 use Config::IniFiles;
 
-my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile);
+use lib "$ENV{EFI_TOOLS_HOME}/lib";
+use EFI::Annotations;
+
+
+my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile, $tigrOut);
 my $result = GetOptions(
     "db-file=s"             => \$dbFile, #sqlite
     "id-file=s"             => \$idFile, # the cluster ID list file to use; optionally put :# after the filename to pick col #
@@ -22,6 +28,7 @@ my $result = GetOptions(
     "pdb-output=s"          => \$pdbOut,
     "taxonomy-output=s"     => \$taxOut,
     "swissprot-output=s"    => \$spOut,
+    "tigr-output=s"         => \$tigrOut, #TODO:????
     "fix-swissprot"         => \$rewriteSP,
 );
 
@@ -45,6 +52,7 @@ if (-f $dbFile) {
 
 my $self = {dbh => $dbh};
 my $data = {};
+my $anno = new EFI::Annotations();
 
 if ($idFile) {
     my $colNum = 1;
@@ -79,20 +87,31 @@ if ($ecDbFile and $ecListOut) {
 
 
 if ($spOut) {
+    print "Output sp\n";
     outputTable($spOut, $data->{sp});
 }
 
 if ($keggOut) {
+    print "Output kegg\n";
     outputTable($keggOut, $data->{kegg});
 }
 
 if ($pdbOut) {
+    print "Output pdb\n";
     outputTable($pdbOut, $data->{pdb});
 }
 
 if ($taxOut) {
+    print "Output tax\n";
     outputTable($taxOut, $data->{tax});
 }
+
+if ($tigrOut) {
+    print "Output tigr\n";
+    outputTable($tigrOut, $data->{tigr});
+}
+
+print "Done output\n";
 
 
 sub outputTable {
@@ -125,7 +144,8 @@ sub processMaster {
     while (my $line = <$fh>) {
         chomp $line;
         next if $line =~ m/^\s*$/;
-        my ($clusterId, $id) = split(m/\t/, $line);
+        my @p = split(m/\t/, $line);
+        my $id = $p[$#p];
         $ids{$id} = 1;
     }
 
@@ -153,22 +173,31 @@ sub retrieveIdData {
     my $clusterId = shift;
     my $data = shift;
 
-    my $sql = "SELECT STATUS, SwissProt_Description AS SP, KEGG, EC, pdb, annotations.Taxonomy_ID as Tax_ID, taxonomy.* FROM annotations " .
-        "LEFT JOIN taxonomy ON annotations.Taxonomy_ID = taxonomy.Taxonomy_ID " .
-        "WHERE annotations.accession = '$id'";
+    my $tigrCol = $tigrOut ? ", TIGRFAMs.id AS tigr_id" : "";
+    my $tigrJoin = $tigrOut ? "LEFT JOIN TIGRFAMs ON annotations.accession = TIGRFAMs.accession" : "";
+
+    my $sql = <<SQL;
+SELECT swissprot_status, annotations.taxonomy_id, metadata, taxonomy.* $tigrCol
+    FROM annotations
+    LEFT JOIN taxonomy ON annotations.taxonomy_id = taxonomy.taxonomy_id
+    $tigrJoin
+WHERE annotations.accession = '$id'
+SQL
     my $sth = $self->{dbh}->prepare($sql);
     $sth->execute();
     while (my $row = $sth->fetchrow_hashref()) {
-        (my $sp = $row->{SP}) =~ s/^\s*(.*?)\s*$/$1/;
-        $sp .= "||$row->{EC}" if $row->{EC};
-        push @{$data->{sp}->{$clusterId}}, [$id, $row->{SP}] if ($row->{SP} and $row->{SP} ne "NA" and $row->{STATUS} eq "Reviewed");
-        push @{$data->{kegg}->{$clusterId}}, [$id, $row->{KEGG}] if ($row->{KEGG} and $row->{KEGG} ne "None");
-        push @{$data->{pdb}->{$clusterId}}, [$id, $row->{pdb}] if ($row->{pdb} and $row->{pdb} ne "None");
-        my @vals;
-        if ($row->{Species}) {
-            @vals = ($row->{Tax_ID}, $row->{Domain}, $row->{Kingdom}, $row->{Phylum}, $row->{Class}, $row->{TaxOrder}, $row->{Family}, $row->{Genus}, $row->{Species});
+        my $md = $anno->decode_meta_struct($row->{metadata});
+        (my $sp = $md->{description}) =~ s/^\s*(.*?)\s*$/$1/;
+        $sp .= "||$md->{ec_code}" if $md->{ec_code} and $sp;
+        push @{$data->{sp}->{$clusterId}}, [$id, $sp] if $row->{swissprot_status} and $sp;
+        push @{$data->{kegg}->{$clusterId}}, [$id, $md->{kegg}] if ($md->{kegg} and $md->{kegg} ne "None");
+        push @{$data->{pdb}->{$clusterId}}, [$id, $md->{pdb}] if ($md->{pdb} and $md->{pdb} ne "None");
+        push @{$data->{tigr}->{$clusterId}}, [$id, $row->{tigr_id}] if $tigrOut and $row->{tigr_id};
+        if ($md->{organism} and $row->{taxonomy_id}) {
+            my @vals;
+            @vals = ($row->{taxonomy_id}, $row->{domain} // "", $row->{kingdom} // "", $row->{phylum} // "", $row->{class} // "", $row->{tax_order} // "", $row->{family} // "", $row->{genus} // "", $row->{species} // "");
+            push @{$data->{tax}->{$clusterId}}, [$id, @vals];
         }
-        push @{$data->{tax}->{$clusterId}}, [$id, @vals];
     }
 }
 sub processFile {

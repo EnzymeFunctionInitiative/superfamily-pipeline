@@ -12,15 +12,14 @@ use lib "$FindBin::Bin/../lib";
 use IdListParser;
 
 
-my ($dataDir, $outDir, $idListFile, $diceJobs, $jobScript, $ascoreFile, $splitMulti, $splitSsnScript);
+my ($dataDir, $outDir, $idListFile, $diceJobs, $jobScript, $splitMulti, $splitSsnScript);
 my ($includeParent);
 my $result = GetOptions(
-    "data-dir=s"            => \$dataDir,
+    "data-dir=s"            => \$dataDir,  # source data
     "out-dir=s"             => \$outDir,
     "id-file=s"             => \$idListFile,
     "dice-if-necessary"     => \$diceJobs,
     "job-script=s"          => \$jobScript,
-    "ascore-file=s"         => \$ascoreFile,
     "split-multi"           => \$splitMulti,
     "split-ssn-script=s"    => \$splitSsnScript,
     "include-parent"        => \$includeParent,
@@ -41,12 +40,6 @@ $scriptName =~ s/\.sh$//;
 my $dicingFile = $diceJobs ? "$scriptDir/${scriptName}_dice.sh" : "";
 my $cpCmd = "cp -u";
 my $appDir = "$FindBin::Bin";
-
-
-my $ascoreData = {};
-if ($ascoreFile and -f $ascoreFile) {
-    $ascoreData = IdListParser::loadAlignmentScoreFile($ascoreFile);
-}
 
 
 my $numLines = 0;
@@ -108,7 +101,7 @@ sub processJob {
     $crJobId = 0 if not $crJobId;
 
     # Input
-    my $colorDir = "$dataDir/$ssnId/output";
+    my $inputCaDir = "$dataDir/$ssnId/output";
 
     # Output
     my $targetDir = "$outDir/$cluster";
@@ -130,12 +123,12 @@ sub processJob {
     if (not $diceJobs) {
         my $parentNum = 0;
         my $parentColorDir = "";
-        copyHmmFiles($ssnId, $colorDir, $targetDir, $subCluster, $subClusterRemap);
+        copyHmmFiles($ssnId, $inputCaDir, $targetDir, $subCluster, $subClusterRemap);
 
-        if (-d $colorDir) {
-            copyIdFiles($colorDir, $targetDir, $subCluster);
-        } elsif (not -d $colorDir) {
-            writeJobLine("echo \"Unable to find FASTA and ID data for $ssnId ($colorDir)\"");
+        if (-d $inputCaDir) {
+            copyIdFiles($inputCaDir, $targetDir, $subCluster);
+        } elsif (not -d $inputCaDir) {
+            writeJobLine("echo \"Unable to find FASTA and ID data for $ssnId ($inputCaDir)\"");
         }
     }
 
@@ -143,7 +136,7 @@ sub processJob {
     my $ssnTempXgmml = "$targetDir/ssn_temp.xgmml";
 
     # Copy for main cluster
-    writeSplitSsnJobLine("$cpCmd $colorDir/*_coloredssn.zip $ssnTempZip");
+    writeSplitSsnJobLine("$cpCmd $inputCaDir/*_coloredssn.zip $ssnTempZip");
     writeSplitSsnJobLine("unzip -p $ssnTempZip > $ssnTempXgmml");
     if ($diceJobs) {
         writeSplitSsnJobLine("$appDir/split_ssn.pl --ssn-in $ssnTempXgmml --output-dir-pat $dicedTargetDir-");
@@ -164,12 +157,12 @@ sub processJob {
     
     # Copy all of the HMM from the diced jobs. The parent files have already been copied.
     if ($diceJobs) {
-        copyIdFiles($colorDir, $dicedMainDir, "All");
+        copyIdFiles($inputCaDir, $dicedMainDir, "All");
         writeJobLine("#### PROCESSING DICING");
-        my $hDir = "$colorDir/cluster-data/hmm/full/normal";
+        my $hDir = "$inputCaDir/cluster-data/hmm/full/normal";
         my $convRatioJobDir = "";
         $convRatioJobDir = "$dataDir/$crJobId/output" if $crJobId;
-        processDicedHmm($cluster, $colorDir, $hDir, $dicedTargetDir, $ascore, $convRatioJobDir);
+        processDicedHmm($cluster, $inputCaDir, $hDir, $dicedTargetDir, $ascore, $convRatioJobDir);
     }
 }
 
@@ -189,8 +182,8 @@ if ($diceJobs) {
 
 
 sub copyIdFiles {
-    my ($colorDir, $targetDir, $subCluster) = @_;
-    my $cDir = "$colorDir/cluster-data/";
+    my ($inputCaDir, $targetDir, $subCluster) = @_;
+    my $cDir = "$inputCaDir/cluster-data/";
     my @urFiles50 = glob("$cDir/uniref50-nodes/*");
     my @urFiles90 = glob("$cDir/uniref90-nodes/*");
     my $hasUniRef = scalar @urFiles50 > 2 ? 50 : (scalar @urFiles90 > 2 ? 90 : 0);
@@ -200,27 +193,27 @@ sub copyIdFiles {
     my $hasMultipleClusters = scalar @idFiles == 1 ? 0 : 1;
     if (not $hasMultipleClusters or $includeParent) {
         # Copy parent
-        writeJobLine(getCopyIdFiles($colorDir, $targetDir, $subCluster, $hasUniRef));
+        writeJobLine(getCopyIdFiles($inputCaDir, $targetDir, $subCluster, $hasUniRef));
     }
 }
 
 
 sub copyHmmFiles {
-    my ($ssnId, $colorDir, $targetDir, $subCluster, $subClusterRemap) = @_;
-    my $hDir = "$colorDir/cluster-data/hmm/full/normal";
+    my ($inputCaDir, $targetDir, $subCluster, $subClusterRemap) = @_;
+    my $hDir = "$inputCaDir/cluster-data/hmm/full/normal";
     my @hmmFiles = glob("$hDir/hmm/cluster_*.hmm");
     if (-d $hDir) {
         writeJobLine(getCopyHistoFiles($hDir, $targetDir, $subCluster));
         writeJobLine(getCopyHmmFiles($hDir, $targetDir, $subCluster));
-        writeJobLine(getCopyConsResFiles($colorDir, $targetDir, $subCluster, 0, $subClusterRemap));
+        writeJobLine(getCopyConsResFiles($inputCaDir, $targetDir, $subCluster, 0, $subClusterRemap));
     } else {
-        writeJobLine("echo \"Unable to find HMM data for $ssnId ($colorDir)\"");
+        writeJobLine("echo \"Unable to find HMM data for $inputCaDir\"");
     }
 }
 
 
 sub getCopyIdFiles {
-    my $colorDir = shift;
+    my $inputCaDir = shift;
     my $targetDir = shift;
     my $num = shift;
     my $hasUniRef = shift;
@@ -237,8 +230,8 @@ sub getCopyIdFiles {
         $num = "_$num";
     }
 
-    my $iDir = "$colorDir/cluster-data";
-    my $fDir = "$colorDir/cluster-data/fasta";
+    my $iDir = "$inputCaDir/cluster-data";
+    my $fDir = "$inputCaDir/cluster-data/fasta";
     push @lines, "$cpCmd $fDir/$fastaFile $targetDir/uniprot.fasta\n";
     push @lines, "$cpCmd $fDir-uniref50/$fastaFile $targetDir/uniref50.fasta\n" if $hasUniRef == 50;
     push @lines, "$cpCmd $fDir-uniref90/$fastaFile $targetDir/uniref90.fasta\n" if $hasUniRef >= 50;
@@ -290,7 +283,7 @@ sub getCopyHistoFiles {
 
 
 sub getCopyConsResFiles {
-    my $colorDir = shift;
+    my $inputCaDir = shift;
     my $targetDir = shift;
     my $subCluster = shift;
     my $isDiced = shift || 0;
@@ -303,7 +296,7 @@ sub getCopyConsResFiles {
     }
 
     my @lines;
-    foreach my $consFile (glob("$colorDir/*ConsensusResidue_*Position*")) {
+    foreach my $consFile (glob("$inputCaDir/*ConsensusResidue_*Position*")) {
         (my $res = $consFile) =~ s/^.*_ConsensusResidue_([A-Z])_.*$/$1/;
         my $file = "consensus_residue_${res}_position.txt";
         if (not $isDiced and not $subCluster) {
@@ -322,17 +315,17 @@ sub getCopyConsResFiles {
 
 sub processDicedHmm {
     my $cluster = shift;
-    my $colorDir = shift;
+    my $inputCaDir = shift;
     my $hDir = shift;
     my $locOutDir = shift;
     my $ascore = shift;
     my $convRatioJobDir = shift || "";
 
-    my @urFiles50 = glob("$colorDir/cluster-data/uniref50-nodes/*");
-    my @urFiles90 = glob("$colorDir/cluster-data/uniref90-nodes/*");
+    my @urFiles50 = glob("$inputCaDir/cluster-data/uniref50-nodes/*");
+    my @urFiles90 = glob("$inputCaDir/cluster-data/uniref90-nodes/*");
     my $hasUniRef = scalar @urFiles50 > 2 ? 50 : (scalar @urFiles90 > 2 ? 90 : 0);
 
-    my $sizeFile = "$colorDir/cluster_num_map.txt";
+    my $sizeFile = "$inputCaDir/cluster_num_map.txt";
     open my $sizeFh, "<", $sizeFile or print "Unable to read $sizeFile: $!";
     my $sizeHeader = <$sizeFh>;
     my %renumber;
@@ -360,7 +353,7 @@ sub processDicedHmm {
         my $targetNum = $renumber{$subNum};
         my $targetId = "$cluster-$targetNum";
         my $targetDir = "$locOutDir-$targetNum";
-        my $fastaFile = "$colorDir/cluster-data/fasta/cluster_$subNum.fasta";
+        my $fastaFile = "$inputCaDir/cluster-data/fasta/cluster_$subNum.fasta";
         my $afaFile = "$hDir/align/cluster_$subNum.afa";
         (my $hmmPngFile = $hmm) =~ s/\.hmm$/.png/;
         (my $hmmJsonFile = $hmm) =~ s/\.hmm$/.json/;
@@ -370,12 +363,12 @@ sub processDicedHmm {
         writeDicedJobLine("mkdir -p $targetDir");
         
         writeDicedJobLine(getCopyHistoFiles($hDir, $targetDir, $subNum));
-        writeDicedJobLine(getCopyIdFiles($colorDir, $targetDir, $subNum, $hasUniRef));
+        writeDicedJobLine(getCopyIdFiles($inputCaDir, $targetDir, $subNum, $hasUniRef));
         writeDicedJobLine(getCopyHmmFiles($hDir, $targetDir, $subNum));
     }
 
     # Parent has already been processed.
-    writeDicedJobLine(getCopyConsResFiles($colorDir, $locOutDir, \@subClusters, 1, "", $sizeFile));
+    writeDicedJobLine(getCopyConsResFiles($inputCaDir, $locOutDir, \@subClusters, 1, "", $sizeFile));
 
     #TODO: split conv_ratio
     my $convRatioFile = "$convRatioJobDir/conv_ratio.txt";

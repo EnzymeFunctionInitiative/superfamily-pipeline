@@ -8,15 +8,12 @@ use Getopt::Long;
 use FindBin;
 use Data::Dumper;
 
-use lib "$FindBin::Bin/../lib";
-
-use IdListParser;
 
 
-my ($diced, $dataDir, $jobIdFile, $outputHmmFile, $outputHmmDir, $byAscore);
+my ($diced, $dataDir, $jobListFile, $outputHmmFile, $outputHmmDir, $byAscore);
 my $result = GetOptions(
     "data-dir=s"        => \$dataDir,
-    "job-id-file=s"     => \$jobIdFile,
+    "job-list-file=s"   => \$jobListFile,
     "output-hmm=s"      => \$outputHmmFile,
     "output-hmm-dir=s"  => \$outputHmmDir,
     "diced"             => \$diced,
@@ -25,17 +22,18 @@ my $result = GetOptions(
 
 
 die "Need --data-dir" if not $dataDir or not -d $dataDir;
-die "Need --job-id-file" if not $jobIdFile or not -f $jobIdFile;
+die "Need --job-list-file" if not $jobListFile or not -f $jobListFile;
 die "Need --output-hmm or --output-hmm-dir" if not $outputHmmFile and not $outputHmmDir;
 
 
-my $clusters = {};
-if ($diced) {
-    my $parseAscoreLineFn = sub { return parseJobIdFileLine($dataDir, @_); };
-    IdListParser::parseFile($jobIdFile, $parseAscoreLineFn);
-} else {
-    $clusters = IdListParser::parseFile($jobIdFile, $dataDir);
-}
+my $clusters = loadJobList($jobListFile);
+
+#if ($diced) {
+#    my $parseAscoreLineFn = sub { return parseJobIdFileLine($dataDir, @_); };
+#    IdListParser::parseFile($jobListFile, $parseAscoreLineFn);
+#} else {
+#    $clusters = IdListParser::parseFile($jobListFile, $dataDir);
+#}
 
 
 my $OutFh; # global
@@ -44,11 +42,11 @@ openFile();
 my %dbEntries;
 
 foreach my $cluster (keys %$clusters) {
-    my $dir = $clusters->{$cluster}->{base_dir};
     if ($diced) {
         openFile($cluster) if not $byAscore;
-        foreach my $ascore (@{ $clusters->{$cluster}->{ascore} }) {
-            my $asDir = "$dir/dicing-$ascore";
+        foreach my $info (@{ $clusters->{$cluster} }) {
+            my $asDir = $info->{base_dir};
+            my $ascore = $info->{ascore};
             if ($byAscore) {
                 my $filePath = openFile($cluster, $ascore);
                 push @{ $dbEntries{$cluster} }, [$ascore, $filePath];
@@ -59,6 +57,8 @@ foreach my $cluster (keys %$clusters) {
             }
         }
     } else {
+        my ($info) = @{ $clusters->{$cluster} };
+        my $dir = $info->{base_dir};
         processHmm("$dir/hmm.hmm", $cluster);
     }
 }
@@ -80,12 +80,8 @@ if ($outputHmmDir) {
 
 
 
-#sub getCommand {
-#    my $cluster = shift;
-#    my $dir = shift;
-#
-#    return "cat $dir/hmm.hmm | sed 's/NAME  .*/NAME  $cluster/' >> $outputHmmFile";
-#}
+
+
 
 
 sub openFile {
@@ -112,6 +108,8 @@ sub processHmm {
     my $cluster = shift;
     my $ascore = shift || "";
 
+    print "Processing $hmmFile\n";
+
     $ascore = "-AS$ascore" if $ascore;
 
     open my $fh, "<", $hmmFile or print "Unable to read hmm file $hmmFile: $!\n" and return;
@@ -125,14 +123,36 @@ sub processHmm {
     close $fh;
 }
 
-sub parseJobIdFileLine {
-    my ($dataDir, $cluster, $parms) = @_;
-    (my $num = $cluster) =~ s/^.*?(\d+)$/$1/;
-    if ($clusters->{$cluster} and $parms->{ascore}) {
-        push @{ $clusters->{$cluster}->{ascore} }, $parms->{ascore};
-    } else {
-        $clusters->{$cluster} = {base_dir => "$dataDir/$cluster", number => $num, ascore => [$parms->{ascore}]};
+
+#sub parseJobIdFileLine {
+#    my ($dataDir, $cluster, $parms) = @_;
+#    (my $num = $cluster) =~ s/^.*?(\d+)$/$1/;
+#    if ($clusters->{$cluster} and $parms->{ascore}) {
+#        push @{ $clusters->{$cluster}->{ascore} }, $parms->{ascore};
+#    } else {
+#        $clusters->{$cluster} = {base_dir => "$dataDir/$cluster", number => $num, ascore => [$parms->{ascore}]};
+#    }
+#}
+
+
+sub loadJobList {
+    my $file = shift;
+
+    my $data = {};
+
+    open my $fh, "<", $file;
+
+    while (<$fh>) {
+        chomp;
+        next if m/^\s*$/ or m/^#/;
+        my ($cluster, $ascore, $path) = split(m/\t/);
+        push @{ $data->{$cluster} }, {base_dir => $path, ascore => $ascore};
     }
+
+    close $fh;
+
+    return $data;
 }
+
 
 

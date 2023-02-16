@@ -22,7 +22,7 @@ die getUsage("require --load-kegg-file $parms->{load_kegg_file}") if $parms->{mo
 die getUsage("require --load-sfld-desc-file") if $parms->{mode} =~ m/sfld\-desc/ and not -f $parms->{load_sfld_desc_file};
 die getUsage("require --load-sfld-map-file") if $parms->{mode} =~ m/sfld\-map/ and not -f $parms->{load_sfld_map_file};
 die getUsage("require --load-id-list-script") if $parms->{mode} =~ m/id\-list/ and not $parms->{load_id_list_script};
-die getUsage("require --load-tigr-file") if $parms->{mode} =~ m/tigr/ and not $parms->{load_tigr_file};
+die getUsage("require --load-tigr-file (not $parms->{load_tigr_file} or not $parms->{load_tigr_names})") if $parms->{mode} =~ m/tigr/ and (not $parms->{load_tigr_file} or not $parms->{load_tigr_names});
 die getUsage("require --load-region-file") if $parms->{mode} =~ m/region/ and not $parms->{load_region_file};
 die getUsage("require --load-netinfo-file") if $parms->{mode} =~ m/netinfo/ and not $parms->{load_netinfo_file};
 die getUsage("require --load-dicing-file") if $parms->{mode} =~ m/dicing/ and not $parms->{load_dicing_file};
@@ -63,7 +63,7 @@ if ($parms->{mode} =~ m/sizes/) {
     $db->networkSizeToSqlite();
 }
 if ($parms->{mode} =~ m/tigr/) {
-    my $tigrData = $db->readTigrData($parms->{load_tigr_file});
+    my $tigrData = $db->readTigrData($parms->{load_tigr_file}, $parms->{load_tigr_names});
     $db->insertTigrData($tigrData);
 }
 if ($parms->{mode} =~ m/netinfo/) {
@@ -85,7 +85,7 @@ if ($parms->{mode} =~ m/evo\-tree/) {
     $db->evoTreeToSqlite();
 }
 if ($parms->{mode} =~ m/conv\-ratio/) {
-    $db->convRatioToSqlite($parms->{data_dir}, $parms->{load_conv_ratio_script}, $parms->{load_diced}, $parms->{job_id_file});
+    $db->convRatioToSqlite($parms->{data_dir}, $parms->{load_conv_ratio_script}, $parms->{load_diced});
 }
 if ($parms->{mode} =~ m/cons\-res/) {
     $db->consResToSqlite($parms->{data_dir}, $parms->{load_cons_res_script}, $parms->{load_diced});
@@ -121,7 +121,6 @@ ${msg}usage: $0 --sqlite-file <OUTPUT_SQLITE_FILE_PATH>
     [--mode ssn --load-ssn-file <DICING_FILE>]
     [--mode conv-ratio --load-conv-ratio-script <OUTPUT_SCRIPT_FOR_LOAD_COMMANDS>]
     [--mode evo-tree]
-
     [--load-dicing]
 
 USAGE
