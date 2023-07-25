@@ -6,10 +6,11 @@ use warnings;
 
 use File::Path qw(mkpath);
 use Capture::Tiny qw(capture);
+use Fcntl qw(:flock);
 
 use Exporter qw(import);
 
-our @EXPORT_OK = qw(do_mkdir do_sql get_job_dir is_job_finished update_job_status run_job get_running_jobs_shell get_num_running_jobs get_jobs_from_db);
+our @EXPORT_OK = qw(do_mkdir do_sql get_job_dir is_job_finished update_job_status run_job get_running_jobs_shell get_num_running_jobs get_jobs_from_db wait_lock);
 
 
 sub do_mkdir {
@@ -20,6 +21,21 @@ sub do_mkdir {
     } else {
         mkpath($dir) if not -d $dir;
     }
+}
+
+
+# Tries X number of times to get a lock on a file.  Once the lock is obtained, it is immediately released,
+# because the purpose of this function is to ensure that SSNs are fully written before they are read.
+sub wait_lock {
+    my $file = shift;
+    my $numAttempts = shift || 100;
+    open my $fh, "+<", $file or die "Unable to read $file in wait_lock: $!";
+    my $c = 0;
+    while (!flock($fh, LOCK_EX | LOCK_NB) and $c++ < $numAttempts) {
+        sleep(1);
+    }
+    close $fh;
+    return $c < $numAttempts;
 }
 
 
@@ -109,6 +125,10 @@ sub run_job {
     my $pfx = shift;
     my $grepText = shift;
     my $dryRun = shift || 0;
+    my $perlEnv = shift || "";
+
+    $perlEnv = $ENV{EFI_PERL_ENV} if $ENV{EFI_PERL_ENV};
+    $perlEnv = "export EFI_PERL_ENV=$perlEnv" if $perlEnv;
 
     my $appStart = $startApp . " " . join(" ", @$args);
     my $cmd = <<CMD;
@@ -116,6 +136,7 @@ source /etc/profile
 module load efiest/devlocal
 curdir=\$PWD
 cd $outDir
+$perlEnv
 $appStart
 CMD
 
@@ -128,7 +149,9 @@ CMD
     my @lines = split(m/[\n\r]+/, $result);
     my $jobNum = 0;
     if (grep m/$grepText/, @lines) {
-        ($jobNum = $lines[$#lines]) =~ s/\D//g;
+        #($jobNum = $lines[$#lines]) =~ s/\D//g;
+        my @nums = split(m/,/, $lines[$#lines]);
+        $jobNum = $nums[$#nums];
         die "Couldn't find job ID in $result : $err" if not $jobNum;
     } else {
         print STDERR "Unable to submit $pfx $asid job: $result|$err\n";

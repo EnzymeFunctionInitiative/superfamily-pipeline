@@ -37,8 +37,8 @@ if ($parms->{mode} =~ m/enzymecode/) {
 if ($parms->{mode} =~ m/kegg/) {
     $db->keggToJson($json);
 }
-if ($parms->{mode} =~ m/sfld/) {
-    $db->sfldToJson($json);
+if ($parms->{mode} =~ m/subgroup/) {
+    $db->subgroupToJson($json);
 }
 
 my $JSON = JSON->new->allow_nonref;

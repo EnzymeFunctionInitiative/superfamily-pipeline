@@ -20,7 +20,7 @@ die "Needs EFI database module name; the EFI_DB_MOD environment variable must be
 
 
 my ($ssnJobPath, $jobMasterDir, $ascoreList);
-my ($webtoolsName, $webtoolsDb);
+my ($webtoolsDbConf);
 my ($dryRun, $removeExisting);
 my ($masterFile, $masterInputDir, $unirefVersion, $jobPrefix);
 my $result = GetOptions(
@@ -29,8 +29,7 @@ my $result = GetOptions(
     "mode-1-ascores=s"      => \$ascoreList,        # Mode 1
     "mode-2-master-file=s"  => \$masterFile,        # Mode 2
     "mode-2-input-dir=s"    => \$masterInputDir,    # Mode 2  - directory where all of the jobs specified in the masterFile are located
-    "webtools-name=s"       => \$webtoolsName,
-    "webtools-db=s"         => \$webtoolsDb,
+    "webtools-db-conf=s"    => \$webtoolsDbConf,
     "remove-existing"       => \$removeExisting,
     "job-prefix=s"          => \$jobPrefix,
     "uniref-version=i"      => \$unirefVersion,
@@ -46,9 +45,9 @@ die "Requires --mode-1-ascores (list of AS)\n" if (not $ascoreList and (not $mas
 
 $unirefVersion = 90 if not $unirefVersion;
 
-#@my $lockFile = "$jobMasterDir/.lock";
-#@print "Already running\n" and exit(0) if -e $lockFile;
-#@`touch $lockFile`;
+#my $lockFile = "$jobMasterDir/.lock";
+#print "Already running\n" and exit(0) if -e $lockFile;
+#`touch $lockFile`;
 
 
 my $dbFile = "$jobMasterDir/data.sqlite";
@@ -57,7 +56,7 @@ if (not $dryRun) {
     $dbh = DBI->connect("dbi:SQLite:dbname=$dbFile", "", "");
     #unlink($lockFile);
     die "No database connection\n" if not $dbh;
-    #createSchema();
+    createSchema();
 }
 
 
@@ -67,9 +66,10 @@ my @defaultArgs = ("--filter eval", "--queue $ENV{EFI_QUEUE}", "--scheduler slur
 
 
 my $webDbh;
-if ($webtoolsDb and $webtoolsName) {
-    my $pass = getPassword("~/.my.cnf");
-    $webDbh = DBI->connect("DBI:mysql:database=$webtoolsDb", "noberg", $pass);
+if ($webtoolsDbConf) {
+    my $info = getDbConf($webtoolsDbConf);
+    my $dsn = "DBI:mysql:database=$info->{database};host=$info->{host}";
+    $webDbh = DBI->connect($dsn, $info->{username}, $info->{password});
 }
 
 
@@ -89,9 +89,9 @@ foreach my $clusterId (keys %$masterData) {
     my $clusterJobPath = get_job_dir($jobMasterDir, $clusterId, $unirefVersion);
     do_mkdir($clusterJobPath, $dryRun) if not -d $clusterJobPath;
     my $inDir = "$masterInputDir/" . $md->{job_id} . "/output";
-    my $isParent = 0;
-    #my $isParent = scalar @{ $md->{children} } > 0;
-    my $finish = startAscoreJobs($inDir, $clusterJobPath, $clusterId, $md->{cluster_name}, $md, $isParent);
+
+    my $isDiced = @{$md->{children}} == 0 and @{$md->{ascores}};;
+    my $finish = startAscoreJobs($inDir, $clusterJobPath, $clusterId, $md->{cluster_name}, $md, $isDiced);
     last if $finish;
 }
 
@@ -106,7 +106,7 @@ sub startAscoreJobs {
     my $clusterId = shift;
     my $clusterName = shift;
     my $ascoreData = shift;
-    my $isParentCluster = shift // 0;
+    my $isDiced = shift;
 
     my $ssnNewParentDir = "$masterDir/as_job";
     do_mkdir($ssnNewParentDir, $dryRun);
@@ -117,13 +117,13 @@ sub startAscoreJobs {
     my @asJobArgs = @defaultArgs;
     push @asJobArgs, "--uniref-version $uniref" if $uniref;
 
-    runShellCommand("rm -rf $generateDir/eval-*") if $removeExisting;
+    runShellCommand("rm -rf $generateDir/AS-*") if $removeExisting;
     if ($removeExisting or not -f "$generateDir/1.out.completed") {
         runShellCommand("rsync -a --exclude='*/' $jobPath/ $generateDir");
     }
 
     my @ascores;
-    if ($isParentCluster) {
+    if (not $isDiced) {
         @ascores = ($ascoreData->{primary_ascore});
     } else {
         @ascores = @{$ascoreData->{ascores}};
@@ -151,7 +151,7 @@ sub startAscoreJobs {
             $maxLen = $ascoreData->{max_len};
         }
 
-        my $status = startJob($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $as, $minLen, $maxLen, \@asJobArgs);
+        my $status = startJob($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $as, $minLen, $maxLen, \@asJobArgs, $isDiced);
         next if not $status;
 
         # Exit the loop if we are running the max number of jobs already.
@@ -164,20 +164,21 @@ sub startAscoreJobs {
 
 
 sub startJob {
-    my ($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $ascore, $minLen, $maxLen, $asJobArgs, $isParent) = @_;
+    my ($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $ascore, $minLen, $maxLen, $asJobArgs, $isDiced) = @_;
 
-    my $evalDirName = "eval-$ascore-$minLen-$maxLen";
-    my $evalDir = "$generateDir/$evalDirName";
+    #my $evalDirName = "eval-$ascore-$minLen-$maxLen";
+    my $outputDirName = "AS-$ascore";
+    my $outputPath = "$generateDir/$outputDirName";
     # Skip this one if it is already done.
-    return if -f "$evalDir/stats.tab.completed";
+    return if -f "$outputPath/stats.tab.completed";
 
     my $asid = lc($clusterId =~ s/[^a-z0-9_]/_/igr);
-    $asid .= "_AS$ascore" if not $isParent;
+    $asid .= "_AS$ascore";
     #$asid .= "_ur$uniref" if $uniref;
     my $title = makeTitle($clusterId, $ascore, $uniref); #"${clusterId}_$asid";
 
-    if ($removeExisting and -d $evalDir) {
-        runShellCommand("rm -rf $evalDir");
+    if ($removeExisting and -d $outputPath) {
+        runShellCommand("rm -rf $outputPath");
     }
 
     my @args = @$asJobArgs;
@@ -187,6 +188,7 @@ sub startJob {
     #push @args, "--job-id ${asid}_as"; # This becomes the file name
     push @args, "--minval $ascore";
     push @args, "--job-id $jobPrefix" if $jobPrefix;
+    push @args, "--output-path $outputPath";
 
     my $appStart = $startApp . " " . join(" ", @args);
     my $cmd = <<CMD;
@@ -199,7 +201,7 @@ cd $ssnNewParentDir
 $appStart
 CMD
     my $result = runShellCommand("$cmd");
-    print "Starting $title $evalDirName\n";
+    print "Starting $title $outputDirName\n";
     if (not $dryRun) {
         my @lines = split(m/[\n\r]+/i, $result);
         my $foundStatsLine = 0;
@@ -212,9 +214,8 @@ CMD
                 last;
             }
         }
-        my $ssnOutDir = $evalDir;
         my $ssnOutName = "${title}_full_ssn.xgmml";
-        my $sql = "INSERT OR REPLACE INTO as_jobs (as_id, cluster_id, cluster_name, ascore, uniref, job_id, started, dir_path, ssn_name) VALUES ('$asid', '$clusterId', '$clusterName', $ascore, $uniref, $jobNum, 1, '$ssnOutDir', '$ssnOutName')";
+        my $sql = "INSERT OR REPLACE INTO as_jobs (as_id, cluster_id, cluster_name, ascore, uniref, job_id, started, dir_path, ssn_name) VALUES ('$asid', '$clusterId', '$clusterName', $ascore, $uniref, $jobNum, 1, '$outputPath', '$ssnOutName')";
         do_sql($sql, $dbh, $dryRun);
     }
 }
@@ -228,16 +229,16 @@ sub makeTitle {
 }
 
 
-#sub createSchema {
-#    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
-#    do_sql($sql, $dbh, $dryRun);
-#    $sql = "CREATE TABLE IF NOT EXISTS ca_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
-#    do_sql($sql, $dbh, $dryRun);
-#    $sql = "CREATE TABLE IF NOT EXISTS cr_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, PRIMARY KEY(as_id))";
-#    do_sql($sql, $dbh, $dryRun);
-#    $sql = "CREATE TABLE IF NOT EXISTS collect_jobs (as_id TEXT, dir_path TEXT, started INT, finished INT, split_job_id INT, collect_job_id INT, PRIMARY KEY(as_id))";
-#    do_sql($sql, $dbh, $dryRun);
-#}
+sub createSchema {
+    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
+    do_sql($sql, $dbh, $dryRun);
+    $sql = "CREATE TABLE IF NOT EXISTS ca_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
+    do_sql($sql, $dbh, $dryRun);
+    $sql = "CREATE TABLE IF NOT EXISTS cr_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, PRIMARY KEY(as_id))";
+    do_sql($sql, $dbh, $dryRun);
+    $sql = "CREATE TABLE IF NOT EXISTS collect_jobs (as_id TEXT, dir_path TEXT, started INT, finished INT, split_job_id INT, collect_job_id INT, PRIMARY KEY(as_id))";
+    do_sql($sql, $dbh, $dryRun);
+}
 
 
 sub runShellCommand {
@@ -294,19 +295,18 @@ sub checkForUniRef {
 }
 
 
-sub getPassword {
+sub getDbConf {
     my $file = shift;
-    my $pass = "";
-    open my $fh, "<", $file;
-    while (<$file>) {
+    open my $fh, "<", $file or die "Unable to open file $file: $!";
+    my $conf = {};
+    while (<$fh>) {
         chomp;
-        if (m/^password=(.*)\s*$/) {
-            $pass = $1;
-            last;
+        if (m/^([^=]+)=(.*)\s*$/) {
+            $conf->{$1} = $2;
         }
     }
     close $fh;
-    return $pass;
+    return $conf;
 }
 
 

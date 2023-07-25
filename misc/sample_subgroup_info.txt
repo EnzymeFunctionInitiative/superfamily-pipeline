@@ -1,0 +1,3 @@
+#Subgroup ID    Subgroup Description	Subgroup Color
+14	GDGT–macrocyclic archaeol synthase (GDGT–MAS) (formerly Methyltransferase Class D)	#FF0000
+14	GDGT–macrocyclic archaeol synthase (GDGT–MAS) (formerly Methyltransferase Class D)	#00FF00

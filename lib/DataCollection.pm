@@ -50,16 +50,16 @@ sub addCluster {
     my $clusterId = shift;
     my $clusterData = shift;
     my $clusterOutputDirPath = shift;
-    my $collectType = shift // COLLECT;
+    my $collectType = shift;
+    my $isDiced = shift;
 
     #TODO: add this to the script list
     #we want to batch the stuff so that we don't have to split it up later manually when submitting
 
     $self->{cluster_dir_paths}->{$asid} = $clusterOutputDirPath;
 
-    my $numChildren = scalar @{ $clusterData->{children} };
     # Non-diced cluster
-    if ($numChildren > 0) {
+    if (not $isDiced) {
         my $commands = [];
         if ($collectType == COLLECT) {
             $commands = $self->{dcc}->getNonDicedCollectCommands($clusterId, $clusterData, $clusterOutputDirPath);

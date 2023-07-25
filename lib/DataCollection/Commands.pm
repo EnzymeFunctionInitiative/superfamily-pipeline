@@ -176,7 +176,7 @@ sub processJob {
             $self->writeJobLine("#### PROCESSING DICING");
             my $hDir = "$inputCaDir/cluster-data/hmm/full/normal";
             my $convRatioJobDir = $inputCrDir // "";
-            $self->processDicedHmm($cluster, $inputCaDir, $hDir, $dicedTargetDir, $ascore, $convRatioJobDir);
+            $self->processDicedHmm($cluster, $inputCaDir, $hDir, $dicedTargetDir, $ascore, $convRatioJobDir, $dicedMainDir);
         }
     }
 }
@@ -303,28 +303,38 @@ sub getCopyConsResFiles {
     my $isDiced = shift || 0;
     my $subClusterRemap = shift || "";
     my $subClusterRemapFile = shift || "";
+    my $dicedMainDir = shift || "";
 
     my $cpCmd = $self->{cp_cmd};
     my $appDir = $self->{app_dir};
 
     my $subCArg = "";
+    my $masterCrFile = "$inputCaDir/consensus_residue.txt";
     if ($isDiced and $subClusterRemapFile) {
         $subCArg = "--sub-cluster-map-file $subClusterRemapFile";
     }
 
     my @lines;
-    foreach my $consFile (glob("$inputCaDir/*ConsensusResidue_*Position*")) {
-        (my $res = $consFile) =~ s/^.*_ConsensusResidue_([A-Z])_.*$/$1/;
+    open my $fh, "<", $masterCrFile or die "Unable to get copy cons res files from $masterCrFile";
+    while (my $line = <$fh>) {
+        chomp $line;
+        my ($res, $j1, $type, $consFile) = split(m/\t/, $line);
+        next if $type ne "position";
+
+        $consFile = "$inputCaDir/$consFile";
         my $file = "consensus_residue_${res}_position.txt";
+
         if (not $isDiced and not $subCluster) {
             push @lines, "$cpCmd $consFile $targetDir/$file";
         }
+
         if ($isDiced) {
             push @lines, "$appDir/split_tab_file.pl --source $consFile --mkdir --output-dir-pat $targetDir- --name-pat $file $subCArg";
         } elsif ($subClusterRemap) {
             push @lines, "$appDir/split_tab_file.pl --source $consFile --output-name $targetDir/$file --sub-cluster $subClusterRemap";
         }
     }
+    close $fh;
     push @lines, "";
     
     return @lines;
@@ -339,6 +349,7 @@ sub processDicedHmm {
     my $locOutDir = shift;
     my $ascore = shift;
     my $convRatioJobDir = shift || "";
+    my $dicedMainDir = shift || "";
 
     my $appDir = $self->{app_dir};
 
@@ -389,7 +400,7 @@ sub processDicedHmm {
     }
 
     # Parent has already been processed.
-    $self->writeDicedJobLine($self->getCopyConsResFiles($inputCaDir, $locOutDir, \@subClusters, 1, "", $sizeFile));
+    $self->writeDicedJobLine($self->getCopyConsResFiles($inputCaDir, $locOutDir, \@subClusters, 1, "", $sizeFile, $dicedMainDir));
 
     #TODO: split conv_ratio
     my $convRatioFile = "$convRatioJobDir/conv_ratio.txt";

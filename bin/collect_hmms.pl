@@ -1,5 +1,7 @@
 #!/bin/env perl
 
+# Merges HMMs for all sub-clusters.
+
 use strict;
 use warnings;
 

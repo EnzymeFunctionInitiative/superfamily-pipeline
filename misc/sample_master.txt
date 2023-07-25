@@ -1,0 +1,4 @@
+#Cluster	UniRef50 Generate Job	UniRef90 Generate Job	UniRef50 Color SSN Job	UniRef90 Color SSN Job	Subgroup ID 	UniRef90 IDs	Min Len	Max Len	Dicing AS	Image AS	Numbering	Histogram Min Len Mega-1	27902		27611							11	UniRef50	190
+Mega-1-3	27925	27932	27923		14	2972	400	60000	20:10:200	11	UniRef50	400
+Mega-1-4	27925	27932	27923		14	2972	400	60000		11	UniRef50	400
+

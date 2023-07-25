@@ -21,6 +21,7 @@ sub new {
     $self->{get_dbh} = $args{get_dbh} or die "Need get_dbh";
     $self->{app_dir} = $args{app_dir} or die "Need app_dir";
     $self->{efi_tools_home} = $args{efi_tools_home} // $ENV{EFI_TOOLS_HOME};
+    $self->{efi_config_file} = $args{efi_config_file} // $ENV{EFI_CONFIG};
     $self->{min_cluster_size} = $args{min_cluster_size} // 3;
     $self->{log_fh} = $args{log_fh};
     $self->{queue} = $args{queue} or die "Need queue";
@@ -32,7 +33,7 @@ sub new {
 sub createFinalDb {
     my $self = shift;
     my $masterData = shift;
-    my $dbFile = shift;
+    my $dataDbFile = shift;
     my $scriptDir = shift;
     my $efiDb = shift;
     my $dataDir = shift;
@@ -40,13 +41,23 @@ sub createFinalDb {
     my $supportFilesDir = shift;
     my $getMetaOnly = shift;
     my $isSizeOnly = shift;
-    my $postLoadFile = shift;
+    my $masterScript = shift;
+
+
+    (my $dbVer = $efiDb) =~ s/^(.*)://;
 
     my $metaBody = <<META;
 
+rm -f $scriptDir/build.finished
+touch $scriptDir/build.started
+
+source /etc/profile.d/lmod.sh
+source /home/groups/efi/apps/perl_env.sh
 module load Perl
+module load efishared/devlocal
 
 export EFI_TOOLS_HOME=$self->{efi_tools_home}
+export EFI_DB=$dbVer
 
 META
 
@@ -54,22 +65,20 @@ META
     my $header;
     my @allMsg;
 
+    my $jobName = "create_db" . ($ENV{OUTPUT_VERSION} ? "_" . $ENV{OUTPUT_VERSION} : "");
+
     if ($isSizeOnly) {
         $scriptFile = "$scriptDir/get_metadata_size.sh";
-        $header = getHeader($scriptFile, "5gb", "create_rsam_db_size");
+        $header = getHeader($scriptFile, "5gb", "${jobName}_size");
         $metaBody .= <<STUFF;
 echo "Calculating size"
 $self->{app_dir}/meta_to_sqlite.pl \\
-            --sqlite-file $dbFile \\
+            --sqlite-file $dataDbFile \\
             --mode sizes
 STUFF
     } else {
         my $ecDescFile = "$supportFilesDir/enzclass.txt";
-        my $tigrNames = "$supportFilesDir/tigr_names.txt";
         my $annoFile = "$supportFilesDir/annotations.txt";
-        my $sfldDescFile = "$supportFilesDir/sfld_desc.txt";
-        my $sfldColorFile = "$supportFilesDir/sfld_fam_color.txt";
-        my $tigrIdFile = "$efiMetaDir/tigr_ids.txt";
 
         #TODO: handle region
         #TODO: handle make_ids id_mapping
@@ -78,60 +87,32 @@ STUFF
         my ($clusterAscoreMapFile, $msg2) = $self->getAscoreMapFile($efiMetaDir, $masterData);
         push @allMsg, @$msg2;
 
-        my $getScriptFile = sub {
-            my $prefix = shift;
-            my $suffix = shift;
-            return "$scriptDir/$prefix$suffix.sh";
-        };
-
-        my $postLoadFile = "$scriptDir/post_load.sh";
-
         my $getLoadFn = sub {
             my $suffix = shift // "";
             my $dicingArg = $suffix ? "--load-diced" : "";
             my $loadDicingArg = $suffix ? "--load-dicing-file $clusterAscoreMapFile" : "";
 
-            my $consResFile = &$getScriptFile("load_cons_res", $suffix);
-            my $convRatioFile = &$getScriptFile("load_conv_ratio", $suffix);
-            my $idListFile = &$getScriptFile("load_id_list", $suffix);
-
             my $dicingMode = $suffix ? "dicing" : "";
             return <<STUFF;
 echo "Loading cons-res,conv-ratio,$dicingMode,id-list"
 $self->{app_dir}/meta_to_sqlite.pl \\
-            --sqlite-file $dbFile \\
+            --sqlite-file $dataDbFile \\
             --data-dir $dataDir \\
-            --mode cons-res,conv-ratio,$dicingMode,id-list \\
-            $dicingArg $loadDicingArg \\
-            --load-cons-res-script $consResFile \\
-            --load-conv-ratio-script $convRatioFile \\
-            --load-id-list-script $idListFile
-
-echo 'echo "Processing $consResFile"' >> $postLoadFile
-echo '/bin/bash $consResFile' >> $postLoadFile
-echo 'echo "Processing $convRatioFile"' >> $postLoadFile
-echo '/bin/bash $convRatioFile' >> $postLoadFile
-echo 'echo "Processing $idListFile"' >> $postLoadFile
-echo '/bin/bash $idListFile' >> $postLoadFile
-grep '#WRAPUP' $consResFile | sed 's/^#WRAPUP //' >> $postLoadFile
-grep '#WRAPUP' $convRatioFile | sed 's/^#WRAPUP //' >> $postLoadFile
-grep '#WRAPUP' $idListFile | sed 's/^#WRAPUP //' >> $postLoadFile
+            --mode cons-res,conv-ratio,id-list,$dicingMode $dicingArg $loadDicingArg
 
 STUFF
         };
 
-        $scriptFile = "$scriptDir/get_metadata.sh";
-        $header = getHeader($scriptFile, "105gb", "create_rsam_db");
+        $scriptFile = $masterScript;
+        $header = getHeader($scriptFile, "105gb", "$jobName");
 
         my ($msg, $allIdFile) = $self->getUniProtIds($efiMetaDir, $masterData);
         push @allMsg, @$msg;
 
         my $unirefMappingFile = "$efiMetaDir/uniref-mapping.txt";
-        my ($netInfoFile, $sfldInfoFile) = $self->getNetInfoFiles($efiMetaDir, $masterData, $sfldDescFile);
+        my ($netInfoFile, $subgroupInfoFile) = $self->getNetInfoFiles($efiMetaDir, $masterData);
 
-        (my $dbVer = $efiDb) =~ s/^(.*)://;
-
-        my $dbConfigFile = "/igbgroup/n-z/noberg/dev/EST/efi.config";
+        my $dbConfigFile = $self->{efi_config_file};
 
         $metaBody .= <<META;
 echo "Getting data from EFI database"
@@ -145,16 +126,12 @@ $self->{app_dir}/collect_metadata_from_efidb.pl \\
     --ec-desc-db $ecDescFile \\
     --taxonomy-output $efiMetaDir/tax.txt \\
     --swissprot-output $efiMetaDir/sp.txt \\
-    --tigr-output $tigrIdFile \\
+    --tigr-output $efiMetaDir/tigr_ids.txt \\
+    --tigr-desc $efiMetaDir/tigr_info.txt \\
     --master-id-file $allIdFile
 
-echo "Getting UniRef IDs"
-#TODO: make this general purpose
-module load efishared/devlocal
-export EFI_DB=$dbVer
-/home/n-z/noberg/dev/GNT/get_uniref_ids.pl --uniprot-ids $allIdFile --uniref-mapping $unirefMappingFile --v2 --config $dbConfigFile
-
-rm -f $postLoadFile
+#echo "Getting UniRef IDs"
+#/home/n-z/noberg/dev/GNT/get_uniref_ids.pl --uniprot-ids $allIdFile --uniref-mapping $unirefMappingFile --v2 --config $dbConfigFile
 
 META
 
@@ -163,36 +140,30 @@ META
 
     $metaBody .= <<META;
 
-echo "Loading kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,sfld-desc into database"
+echo "Loading kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,subgroup-desc into database"
 $self->{app_dir}/meta_to_sqlite.pl \\
-            --sqlite-file $dbFile \\
-            --data-dir $dataDir \\
-            --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,sfld-desc \\
-            --load-kegg-file $efiMetaDir/kegg.txt \\
-            --load-swissprot-file $efiMetaDir/sp.txt \\
-            --load-pdb-file $efiMetaDir/pdb.txt \\
-            --load-anno-file $annoFile \\
-            --load-taxonomy-file $efiMetaDir/tax.txt \\
-            --load-ec-file $ecDescFile \\
-            --load-uniref-file $unirefMappingFile \\
-            --load-netinfo-file $netInfoFile \\
-            --load-sfld-desc-file $sfldInfoFile
+    --sqlite-file $dataDbFile \\
+    --data-dir $dataDir \\
+    --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref,netinfo,subgroup-desc,tigr \\
+    --load-kegg-file $efiMetaDir/kegg.txt \\
+    --load-swissprot-file $efiMetaDir/sp.txt \\
+    --load-pdb-file $efiMetaDir/pdb.txt \\
+    --load-anno-file $annoFile \\
+    --load-taxonomy-file $efiMetaDir/tax.txt \\
+    --load-ec-file $ecDescFile \\
+    --load-netinfo-file $netInfoFile \\
+    --load-subgroup-desc-file $subgroupInfoFile \\
+    --load-tigr-info-file $efiMetaDir/tigr_info.txt \\
+    --load-tigr-ids-file $efiMetaDir/tigr_ids.txt
+#    --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,subgroup-desc,tigr \\
+#    --load-uniref-file $unirefMappingFile \\
 
-# Happens after the meta_to_sqlite.pl steps, since we need to calculate sizes, and also map UniProt IDs to TIGR fams to optimize SQL query
-
-echo "Calculating TIGR"
-$self->{app_dir}/meta_to_sqlite.pl \\
-            --sqlite-file $dbFile \\
-            --mode tigr \\
-            --load-tigr-names $tigrNames \\
-            --load-tigr-file $tigrIdFile
-
-# Load IDs and other data into database
-/bin/bash $postLoadFile
 
 $self->{app_dir}/meta_to_sqlite.pl \\
-            --sqlite-file $dbFile \\
-            --mode sizes
+    --sqlite-file $dataDbFile \\
+    --mode sizes
+
+touch $scriptDir/build.finished
 
 META
     }
@@ -208,94 +179,130 @@ META
 
 sub createGndDb {
     my $self = shift;
-    my ($efiDbModule, $scriptDir, $outputCollectDir, $unirefVersion, $newGndDb) = @_;
+    my ($efiDbModule, $dataDbFile, $loadDir, $scriptDir, $outputScript, $unirefVersion, $createNewGndDb) = @_;
 
     my $gndTempDir = "$scriptDir/gnds_temp";
     mkdir($gndTempDir);
-    my $gndOutputDir = "$outputCollectDir/gnds";
+    my $gndOutputDir = "$loadDir/gnds";
     mkdir($gndOutputDir);
 
     my $outputDb = "$gndOutputDir/gnd.sqlite";
     my $outputKey = "$gndOutputDir/gnd.key";
-    my $makeJobScript = "$scriptDir/gen_gnd_job.sh";
 
-    my $idFileBase = "$scriptDir/load_id_list.sh_load_ids";
-    my $dicedIdFileBase = "$scriptDir/load_id_list_diced.sh_load_ids"; 
+    `/usr/bin/uuidgen | tr -d '\n' > $outputKey`;
 
-    my @mappingArgs;
-    push @mappingArgs, "--id-map ${idFileBase}_uniprot.txt";
-    push @mappingArgs, "--append-id-map ${dicedIdFileBase}_uniprot.txt";
+    my $dbArgs = not $createNewGndDb ? "--make-map-tables-only" : "";
 
-    if (-f "${idFileBase}_uniref50.txt" or -f "${dicedIdFileBase}_uniref50.txt") {
-        push @mappingArgs, "--id-map-uniref50 ${idFileBase}_uniref50.txt";
-        push @mappingArgs, "--append-id-map-uniref50 ${dicedIdFileBase}_uniref50.txt";
-    }
-    if (-f "${idFileBase}_uniref90.txt" or -f "${dicedIdFileBase}_uniref90.txt") {
-        push @mappingArgs, "--id-map-uniref90 ${idFileBase}_uniref90.txt";
-        push @mappingArgs, "--append-id-map-uniref90 ${dicedIdFileBase}_uniref90.txt";
-    }
+    my $header = getHeader($outputScript, "30gb", "create_gnd_database");
 
-    my $mappingArgs = join(" \\\n\t", @mappingArgs);
+    my %files;
+    $files{uniprot} = {table => "id_mapping", column => "uniprot_id", output_file => "$gndTempDir/id_mapping_uniprot"};
+    $files{uniref90} = {table => "id_mapping_uniref90", column => "uniref90_id", output_file => "$gndTempDir/id_mapping_uniref90"};
+    $files{uniref50} = {table => "id_mapping_uniref50", column => "uniref50_id", output_file => "$gndTempDir/id_mapping_uniref50"} if $unirefVersion == 50;
 
-    my $dbArgs = not $newGndDb ? "--make-map-tables-only" : "";
+    my $unirefIdsFile = "$gndTempDir/uniref_ids";
+    my $allIdsFile = "$gndTempDir/all_ids";
 
-    my $outputScript = "$scriptDir/gen_gnd_job_wrapper.sh";
-    open my $fh, ">", $outputScript or do_exit(1);
+    open my $fh, ">", $outputScript or die "Unable to write to create gnd database script $outputScript: $!";
+    $fh->print($header);
     $fh->print(<<SCRIPT);
-#!/bin/bash
 
 module load Perl
+source /home/groups/efi/apps/perl_env.sh
 module load efignt/devlocal
 
-/usr/bin/uuidgen | tr -d '\n' > $outputKey
+touch $scriptDir/gnd.started
+mkdir -p $gndTempDir
 
-$self->{app_dir}/make_gnd_job.pl $dbArgs \\
-    --script-file $makeJobScript \\
-    --gnd-temp-dir $gndTempDir \\
-    --output-db $outputDb \\
-    --db-ver $efiDbModule \\
-    $mappingArgs
-
-
+# Get IDs from the id_mapping tables in the database, then sort them properly for the GNDs
+#
 SCRIPT
+
+    foreach my $type (keys %files) {
+        my $baseFile = "$files{$type}->{output_file}.ids";
+        $fh->print(<<SCRIPT);
+$self->{app_dir}/sqlite_to_text.pl --sqlite-file $dataDbFile --output-file $baseFile --table $files{$type}->{table} --columns '*'
+$self->{app_dir}/sort_gnd_ids.pl --id-mapping $baseFile --out-sorted $baseFile.sorted
+$self->{app_dir}/sqlite_to_text.pl --sqlite-file $dataDbFile --output-file $baseFile.diced --table diced_$files{$type}->{table} --columns '*'
+$self->{app_dir}/sort_gnd_ids.pl --id-mapping $baseFile.diced --out-sorted $baseFile.diced.sorted
+SCRIPT
+    }
+
+    $fh->print(<<SCRIPT);
+
+cat $files{uniprot}->{output_file}.ids.sorted $files{uniprot}->{output_file}.ids.diced.sorted > $allIdsFile.sorted
+awk '{print \$NF}' $allIdsFile.sorted | sort | uniq > $allIdsFile
+
+# Get UniRef IDs
+#
+get_uniref_ids.pl --uniprot-ids $allIdsFile --uniref-mapping $unirefIdsFile --uniref-version 50
+
+
+# Create the diagram database
+#
+
+create_diagram_db.pl \\
+    --id-file $unirefIdsFile \\
+    --do-id-mapping \\
+    --uniref 50 \\
+    --db-file $outputDb \\
+    --job-type ID_LOOKUP \\
+    --no-neighbor-file $gndTempDir/no_nb.txt \\
+    --nb-size 20
+
+$self->{app_dir}/make_gnd_cluster_map_tables.pl --db-file $outputDb --id-mapping $files{uniprot}->{output_file}.ids.sorted --seq-version uniprot --error-file $gndTempDir/error_uniprot.log
+$self->{app_dir}/make_gnd_cluster_map_tables.pl --db-file $outputDb --id-mapping $files{uniref90}->{output_file}.ids.sorted --seq-version uniref90 --error-file $gndTempDir/error_uniref90.log
+SCRIPT
+
+    if ($unirefVersion == 50) {
+        $fh->print(<<SCRIPT);
+$self->{app_dir}/make_gnd_cluster_map_tables.pl --db-file $outputDb --id-mapping $files{uniref50}->{output_file}.ids.sorted --seq-version uniref50 --error-file $gndTempDir/error_uniref50.log
+SCRIPT
+    }
+
+    $fh->print("touch $scriptDir/gnd.finished\n");
+
+    close $fh;
 }
 
 
-sub createHmmDb {
+sub createHmmDatabaseScript {
     my $self = shift;
-    my ($masterData, $scriptDir, $outputCollectDir) = @_;
+    my ($masterData, $scriptDir, $outputScript, $loadDir) = @_;
 
-    my $hmmDbDir = "$outputCollectDir/hmms";
+    my $hmmDbDir = "$loadDir/hmms";
     mkdir $hmmDbDir;
 
     my $jobIdFile = "$scriptDir/hmm_job_list.txt";
-    $self->getJobDirs($masterData, $jobIdFile, $outputCollectDir);
+    $self->getJobDirs($masterData, $jobIdFile, $loadDir);
 
     my $dicedJobIdFile = "$scriptDir/hmm_diced_job_list.txt";
-    $self->getDicedJobDirs($dicedJobIdFile);
-
-    my $hmmBuildScript = "$scriptDir/gen_hmm_db.sh";
+    $self->getDicedJobDirs($dicedJobIdFile, $masterData);
 
     my $allHmm = "$hmmDbDir/all.hmm";
 
-    my $outputScript = "$scriptDir/gen_hmm_db_wrapper.sh";
-    open my $fh, ">", $outputScript or do_exit(1);
+    my $header = getHeader($outputScript, "30gb", "create_hmm_databases");
+
+    open my $fh, ">", $outputScript or die "Unable to write to create hmm databases script $outputScript: $!";
+    $fh->print($header);
     $fh->print(<<SCRIPT);
-#!/bin/bash
 
 module load Perl
+source /home/groups/efi/apps/perl_env.sh
 
-$self->{app_dir}/collect_hmms.pl --data-dir $outputCollectDir --job-list-file $dicedJobIdFile --output-hmm-dir $hmmDbDir --by-ascore --diced
-$self->{app_dir}/collect_hmms.pl --data-dir $outputCollectDir --job-list-file $jobIdFile --output-hmm $allHmm --by-ascore
+$self->{app_dir}/collect_hmms.pl --data-dir $loadDir --job-list-file $dicedJobIdFile --output-hmm-dir $hmmDbDir --by-ascore --diced
+$self->{app_dir}/collect_hmms.pl --data-dir $loadDir --job-list-file $jobIdFile --output-hmm $allHmm --by-ascore
 
-echo "module load HMMER" > $hmmBuildScript
-ls $hmmDbDir/*.hmm | sed 's/^/hmmpress /' >> $hmmBuildScript
-echo "bash $hmmBuildScript"
+module load HMMER
+for hmm_path in $hmmDbDir/*.hmm; do
+    hmmpress \$hmm_path
+done
 
 SCRIPT
+#echo "module load HMMER" > $hmmBuildScript
+#ls $hmmDbDir/*.hmm | sed 's/^/hmmpress /' >> $hmmBuildScript
+#echo "bash $hmmBuildScript"
     close $fh;
-
-    print "Run bash $outputScript\n";
 }
 
 
@@ -303,14 +310,16 @@ sub getJobDirs {
     my $self = shift;
     my $masterData = shift;
     my $outFile = shift;
-    my $outputCollectDir = shift;
+    my $loadDir= shift;
 
     open my $fh, ">", $outFile;
 
     foreach my $clusterId (keys %$masterData) {
         my $kids = $masterData->{$clusterId}->{children};
         next if not $masterData->{$clusterId}->{job_id}; # Placeholder (i.e. parent cluster)
-        my $dirPath = "$outputCollectDir/$clusterId";
+        my $isDiced = @{$masterData->{$clusterId}->{ascores}} > 0;
+        next if $isDiced;
+        my $dirPath = "$loadDir/$clusterId";
         $fh->print(join("\t", $clusterId, "", $dirPath), "\n");
     }
 
@@ -321,6 +330,7 @@ sub getJobDirs {
 sub getDicedJobDirs {
     my $self = shift;
     my $outFile = shift;
+    my $masterData = shift;
 
     open my $fh, ">", $outFile;
 
@@ -330,6 +340,8 @@ SQL
     my $dbh = &{$self->{get_dbh}}();
     my @jobs = get_jobs_from_db($sql, $dbh, $self->{dry_run}, $self->{log_fh});
     foreach my $job (@jobs) {
+        my $isDiced = @{$masterData->{$job->{cluster_id}}->{ascores}} > 0;
+        next if not $isDiced;
         $fh->print(join("\t", $job->{cluster_id}, $job->{ascore}, $job->{dir_path}), "\n");
     }
 
@@ -389,7 +401,7 @@ sub getAscoreMapFile {
         print "Finding diced sub clusters for $dirPath\n";
         my @subDirs = grep { -d $_ } glob("$dirPath/cluster-*");
         foreach my $subDir (@subDirs) {
-            (my $subCluster = $subDir) =~ s%^.*/(cluster-[\d\-]+)$%$1%;
+            (my $subCluster = $subDir) =~ s%^.*/(cluster-[a-z\d\-]*[\d\-]+)$%$1%;
             $fh->print(join("\t", $clusterId, $primaryAscore, $ascore, $subCluster), "\n");
         }
     }
@@ -404,25 +416,13 @@ sub getNetInfoFiles {
     my $self = shift;
     my $efiMetaDir = shift;
     my $masterData = shift;
-    my $sfldDescFile = shift;
-
-    my $sfldMap = {};
-    if ($sfldDescFile and -f $sfldDescFile) {
-        open my $fh, "<", $sfldDescFile or die "Unable to read SFLD desc file $sfldDescFile: $!";
-        while (<$fh>) {
-            chomp;
-            my ($num, $desc, $color) = split(m/\t/);
-            $sfldMap->{$num} = {desc => $desc, color => $color};
-        }
-        close $fh;
-    }
 
     my @clusterIds = sort clusterIdSort keys %$masterData;
 
     my $outNetInfoFile = "$efiMetaDir/network_names.txt";
-    my $outSfldMapFile = "$efiMetaDir/sfld_map.txt";
+    my $outSubgroupMapFile = "$efiMetaDir/subgroup_map.txt";
     open my $netInfoFh, ">", $outNetInfoFile;
-    open my $sfldMapFh, ">", $outSfldMapFile;
+    open my $subgroupMapFh, ">", $outSubgroupMapFile;
 
     my $topLevel = "fullnetwork";
     
@@ -430,24 +430,22 @@ sub getNetInfoFiles {
         my $md = $masterData->{$clusterId};
         (my $clusterName = $md->{cluster_name}) =~ s/^mega-/Megacluster-/i;
         my $parentId = $md->{job_id} ? "" : $topLevel; # This one is a placeholder for the top level children
-        my $sfld = $md->{sfld};
-        my $netInfoLine = join("\t", $clusterId, $clusterName, $sfld, "", $parentId);
+        my $netInfoLine = join("\t", $clusterId, $clusterName, $md->{subgroup_id}, "", $parentId);
         $netInfoFh->print($netInfoLine, "\n");
     
-        my $sfldNum = $masterData->{$clusterId}->{sfld_num};
-        if ($sfldNum and $sfldMap->{$sfldNum}->{color}) {
-            my $color = $sfldMap->{$sfldNum}->{color};
-            my $sfldMapLine = join("\t", $clusterId, $sfld, $color);
-            $sfldMapFh->print($sfldMapLine, "\n");
+        if ($md->{subgroup_id} and $md->{subgroup_color}) {
+            my $color = $md->{subgroup_color};
+            my $subgroupMapLine = join("\t", $clusterId, $md->{subgroup_id}, $md->{subgroup_color});
+            $subgroupMapFh->print($subgroupMapLine, "\n");
         }
     }
 
     $netInfoFh->print(join("\t", $topLevel, "", "", "", ""), "\n");
     
-    close $sfldMapFh;
+    close $subgroupMapFh;
     close $netInfoFh;
 
-    return ($outNetInfoFile, $outSfldMapFile);
+    return ($outNetInfoFile, $outSubgroupMapFile);
 }
 
 
@@ -493,76 +491,128 @@ sub getHeader {
 #SBATCH --kill-on-invalid-dep=yes
 #SBATCH -o $scriptFile.stdout.%j
 #SBATCH -e $scriptFile.stderr.%j
+#SBATCH --mail-type=FAIL
 HEADER
 }
 
 
-sub writeCytoscapeScript {
-    my $self = shift;
-    my $jobMasterDir = shift;
-    my $configFile = shift;
-    my $outputScript = shift;
-    my $jobPrefix = shift // "";
-    my $ssnListFileName = shift // "ssn_list.txt";
-
-    my $ssnListFile = "$jobMasterDir/$ssnListFileName";
-    my $bakFile = "$ssnListFile.bak0";
-    my $c = 1;
-    while (-f $bakFile) {
-        $bakFile = "$ssnListFile.bak" . $c++;
-    }
-    rename $ssnListFile, $bakFile;
-
-    my @files = $self->listSsnFiles();
-    open my $fh, ">", $ssnListFile or die "Unable to write to $ssnListFile: $!\n";
-    map { $fh->print($_, "\n"); } @files;
-    close $fh;
-
-    #my $prefixArg = $jobPrefix ? "--job-prefix $jobPrefix" : "";
-
-    my $cmd = <<CMD;
-#!/bin/bash
-
-lock_file="`readlink -f \$0`.lock"
-
-#-gt is sometimes 2, sometimes 3?????
-if [[ -f \$lock_file || "`ps -ef | grep \$0 | grep -v grep | wc -l`" -gt 2 ]]; then exit; fi
-touch \$lock_file
-
-source /etc/profile
-module load Perl
-module load singularity
-
-# Before the source
-JOB_MASTER_DIR="$jobMasterDir"
-CY_SSN_LIST_FILE="$ssnListFile"
-
-source $configFile
-
-if [[ ! -n \$CY_SSN_LIST_FILE ]]; then
-    rm \$lock_file
-    exit
-fi
-
-\$CY_APP_HOME/bin/cyto_job_server.pl \\
-    --db \$CY_BASE_DIR/job_info.sqlite \\
-    --script-dir \$CY_SCRIPT_DIR \\
-    --ssn-list-file \$CY_SSN_LIST_FILE \\
-    --py4cy-image \$CY_APP_SIF_IMAGE \\
-    --max-cy-jobs \$CY_NUM_JOBS \\
-    \$CY_DEBUG_FLAG \$CY_LOG_FILE_ARG \$CY_CHECK_SSN_DIRS_FLAG \$CY_DRY_RUN_FLAG \$CY_OVERWRITE_IMAGES_FLAG \\
-    \$CY_CYTOSCAPE_CONFIG_MASTER_ARG \$CY_CYTOSCAPE_APP_MASTER_ARG \$CY_CYTOSCAPE_TEMP_HOME_ARG \$CY_JAVA_HOME_ARG \$CY_MAX_NODE_JOBS_ARG \$CY_MAX_JOBS_ARG \\
-    \$CY_MODULE_ARG \$CY_EXPORT_ZOOM \$CY_IMAGE_CROP \$CY_APP_VERBOSE \$CY_IMAGE_NAME \$CY_QUEUE_ARG \$CY_JOB_PREFIX_ARG \$CY_MAX_RAM_THRESHOLD
-
-rm \$lock_file
-rm \$CY_SSN_LIST_FILE
-
-CMD
-    
-    open my $outFh, ">", $outputScript or die "Unable to write to $outputScript: $!";
-    $outFh->print($cmd);
-    close $outFh;
-}
+#sub writeCytoscapeScript {
+#    my $self = shift;
+#    my $jobMasterDir = shift;
+#    my $loadDir = shift;
+#    my $configFile = shift;
+#    my $outputScript = shift;
+#
+#    return if -f $outputScript;
+#
+#	my $cyBaseDir = "$jobMasterDir/cytoscape";
+#    my $cyScriptDir = "$cyBaseDir/scripts";
+#    my $cyTempDir = "$cyBaseDir/temp";
+#    my $jobInfoDb = "$cyBaseDir/job_info.sqlite";
+#
+#    if (not -f $configFile) {
+#        open my $fh, ">", $configFile or die "Unable to open Cytoscape config file for writing: $!";
+#        $fh->print(<<CMD);
+##!/bin/bash
+#export CY_APP_MASTER="/home/groups/efi/apps/Cytoscape_3_10_0"
+#export CY_UTIL_DIR="/home/groups/efi/apps/cytoscape"
+#export CY_CONFIG_HOME="\$CY_UTIL_DIR/init/CytoscapeConfiguration"
+#export JAVA_HOME="/home/groups/efi/apps/jdk-17.0.6"
+#export CY_APP_HOME="/home/n-z/noberg/dev/cytoscape-util/batch_proc"
+#export CY_APP_SIF_IMAGE="\$CY_UTIL_DIR/py4cytoscape.sif"
+#export CY_NUM_JOBS=40
+#export CY_NUM_USES=15
+#CMD
+#        close $fh;
+#    }
+#
+#    if (not -f "$jobMasterDir/find_ssns.sh") {
+#        open my $fh, ">", "$jobMaster/find_ssns.sh" or die "Unable to open find_ssns.sh for writing: $!";
+#        $fh->print(<<CMD);
+##!/bin/bash
+#set +e
+#
+#module load Perl
+#source /home/groups/efi/apps/perl_env.sh
+#
+#lock_file="$jobInfoDb.find.lock";
+#touch \$lock_file
+#/home/n-z/noberg/dev/cytoscape-util/batch_proc/bin/find_ssns.pl --db $jobInfoDb --ssn-root-dir $loadDir
+#rm \$lock_file
+#
+#CMD
+#		close $fh;
+#	}
+#
+#
+#    my $cyDebug = ""; #--debug
+#    my $cyDryRun = ""; #--dry-run
+#    my $imageConf = "verbose=no_verbose,style=style,zoom=400,crop=crop,name=ssn_lg";
+#
+#    my $cmd = <<CMD;
+##!/bin/bash
+#set +e
+#
+#lock_file="`readlink -f \$0`.lock"
+##-gt is sometimes 2, sometimes 3?????
+#
+#CYTO_DIR="$jobMasterDir/cytoscape"
+#LOAD_DIR="$loadDir"
+#JOB_INFO_DB="$jobInfoDb"
+#
+#if [[ -f "\$JOB_INFO_DB.find.lock" ]]; then
+#    echo "Find lock exists; wait until find has finished."
+#    exit;
+#fi
+#
+#t1=`ps -ef`
+#t2=`echo \$t1 | grep \$0`
+#t3=`echo \$t3 | grep -v grep`
+#t4=`echo \$t3 | wc -l`
+#
+#if [[ -f "\$lock_file" ]]; then
+#    echo "Lock file exists"
+#    exit
+#elif [[ \$t4 -gt 2 ]]; then
+#    echo "Too many processes"
+#    exit;
+#fi
+#touch \$lock_file
+#
+#source /etc/profile
+#module load Perl
+#module load singularity
+#source /home/groups/efi/apps/perl_env.sh
+#
+#
+#source $configFile
+#mkdir -p $cyScriptDir
+#mkdir -p $cyTempDir
+#
+#
+#\$CY_APP_HOME/bin/cyto_job_server.pl \
+#    --db \$JOB_INFO_DB \
+#    --script-dir \$CYTO_DIR/scripts \
+#    --temp-dir \$CYTO_DIR/temp \
+#    --cyto-util-dir \$CY_UTIL_DIR \
+#    --py4cy-image \$CY_APP_SIF_IMAGE \
+#    --max-cy-jobs \$CY_NUM_JOBS \
+#    --log-file \$CYTO_DIR/log.txt \
+#    --cyto-config-home \$CY_CONFIG_HOME \
+#    --cyto-app \$CY_APP_MASTER \
+#    --image-conf $imageConf \
+#    --queue $self->{queue} \
+#    --ssn-root-dir \$LOAD_DIR \
+#    --overwrite-images --cyto-multiple-mode --job-prefix cyto --cyto-job-uses \$CY_NUM_USES
+#
+#rm \$lock_file
+#    
+#CMD
+#    
+#    open my $outFh, ">", $outputScript or die "Unable to write to $outputScript: $!";
+#    $outFh->print($cmd);
+#    close $outFh;
+#}
 
 
 sub listSsnFiles {
@@ -594,7 +644,7 @@ sub listSsnFiles {
 }
 
 
-sub checkCollectFinished {
+sub updateCollectStatus {
     my $self = shift;
     my $splitFlag = shift // 0;
 
@@ -612,7 +662,6 @@ sub checkCollectFinished {
         push @messages, "No data for $asid" and next if not $jobData->{$key};
         my @ids = split(m/,/, $jobData->{$key});
         my $slurmFinished = checkSlurmStatus(@ids);
-#        print "$asid\t" . join(",", @ids), "\t$slurmFinished\n";
         if ($slurmFinished) {
             my $finishFile = $splitFlag == DataCollection::SPLIT ? $jobData->{dir_path} . "/ssn.xgmml" : "";
             if ($finishFile and -f $finishFile) {
@@ -635,7 +684,7 @@ sub makeCollect {
     my $self = shift;
     my $masterData = shift;
     my $collectScriptDir = shift;
-    my $outputCollectDir = shift;
+    my $loadDir = shift;
     my $splitFlag = shift // 0;
     my $minClusterSize = shift // 3;
     my $jobPrefix = shift // "";
@@ -653,27 +702,33 @@ sub makeCollect {
 
         my $ssnDir = $jobData->{ca_ssn_dir};
         my $inputSsn = "$ssnDir/$jobData->{ca_ssn_name}";
-        my $outputDir = "$outputCollectDir/$clusterId"; 
+        my $outputDir = "$loadDir/$clusterId"; 
 
-        my $children = $masterData->{$clusterId}->{children};
+        my $md = $masterData->{$clusterId};
+        my $children = $md->{children};
         my $cd = {input_ca_dir => $ssnDir, input_ssn => $inputSsn, input_cr_dir => $jobData->{cr_dir}, output_dir => $outputDir,
             children => $children};
-        $cd->{ascore} = $jobData->{ascore}; # Always dice, even if it's a parent cluster
-        #$cd->{ascore} = $jobData->{ascore} if scalar @$children == 0;
+       
+        # No children (leaf) and multiple ascores ==> a diced SSN. A non-diced SSN will not have any ascores in the ascore field
+        # (it has a primary_ascore value instead).
+        my $isDiced = (not @$children and @{$md->{ascores}});
+        #$cd->{ascore} = $jobData->{ascore}; # Always dice, even if it's a parent cluster
+        $cd->{ascore} = $jobData->{ascore} if $isDiced;
 
         #$self->{log_fh}->print("Undefined cluster ID") if not $clusterId;
         #$self->{log_fh}->print("Undefined ascore for $clusterId") if not $cd->{ascore};
-        my $dirPath = "$outputCollectDir/$clusterId";
+        my $dirPath = "$loadDir/$clusterId";
         mkdir $dirPath if not -d $dirPath;
-        if (scalar @$children == 0) {
-            $dirPath .= "/dicing-$cd->{ascore}" if $cd->{ascore}; # Leaf cluster
+        if ($isDiced) {
+            $dirPath .= "/dicing-$cd->{ascore}";
             mkdir $dirPath;
-        } elsif ($cd->{ascore} != $masterData->{$clusterId}->{primary_ascore}) {
-            # Skip copying every AS except the primary one since this cluster has sub-clusters.
-            next;
         }
+        #} elsif ($cd->{ascore} != $md->{primary_ascore}) {
+        #    # Skip copying every AS except the primary one since this cluster has sub-clusters.
+        #    next;
+        #}
 
-        $collect->addCluster($asid, $clusterId, $cd, $dirPath, $splitFlag);
+        $collect->addCluster($asid, $clusterId, $cd, $dirPath, $splitFlag, $isDiced);
     }
 
     my ($jobMap, $messages) = $collect->finish($splitFlag, $jobPrefix);

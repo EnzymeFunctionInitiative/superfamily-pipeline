@@ -1,5 +1,7 @@
 #!/bin/env perl
 
+# This inserts a color from a IPR->Subgroup color mapping file into the given SSN.
+
 use strict;
 use warnings;
 
@@ -11,28 +13,28 @@ use Data::Dumper;
 use lib $FindBin::Bin . "/../lib";
 use EFI::SSN;
 
-my ($ssnIn, $ssnOut, $sfldFile);
+my ($ssnIn, $ssnOut, $subgroupFile);
 my $result = GetOptions(
     "ssn-in=s"          => \$ssnIn,
     "ssn-out=s"         => \$ssnOut,
-    "sfld-colors=s"     => \$sfldFile,
+    "subgroup-colors=s" => \$subgroupFile,
 );
 
 
-my $usage = "$0 --ssn-in path_to_ssn --ssn-out path_to_output_ssn --sfld-colors path_to_sfld_mapping_file";
+my $usage = "$0 --ssn-in path_to_ssn --ssn-out path_to_output_ssn --subgroup-colors path_to_subgroup_mapping_file";
 
-die $usage if not $ssnIn or not -f $ssnIn or not $sfldFile or not -f $sfldFile or not $ssnOut;
+die $usage if not $ssnIn or not -f $ssnIn or not $subgroupFile or not -f $subgroupFile or not $ssnOut;
 
 my $defaultColor = "#999999";
 
 
-my %sfldColors;
-open my $fh, "<", $sfldFile or die "Unable to read --sfld-colors $sfldFile: $!";
+my %subgroupColors;
+open my $fh, "<", $subgroupFile or die "Unable to read --subgroup-colors $subgroupFile: $!";
 while (<$fh>) {
     chomp;
     next if not m/^IPR\d{6,6}/;
     my ($fam, $color) = split(m/\t/);
-    $sfldColors{$fam} = $color;
+    $subgroupColors{$fam} = $color;
 }
 close $fh;
 
@@ -53,7 +55,7 @@ my $nodeReaderFn = sub {
 
     my $iproFn = sub {
         my $ipro = shift;
-        $colorMap{$nodeId} = $sfldColors{$ipro} if $sfldColors{$ipro};
+        $colorMap{$nodeId} = $subgroupColors{$ipro} if $subgroupColors{$ipro};
     };
 
     my @annotations = $xmlNode->findnodes("./*");
@@ -74,7 +76,6 @@ my $nodeReaderFn = sub {
 my $nodeWriterFn = sub {
     my ($nodeId, $childIds, $fieldWriter, $listWriter) = @_;
     if ($colorMap{$nodeId}) {
-        #&$fieldWriter("SFLD_Color", "string", $colorMap{$nodeId});
         &$fieldWriter("node.fillColor", "string", $colorMap{$nodeId});
     } else {
         &$fieldWriter("node.fillColor", "string", $defaultColor);

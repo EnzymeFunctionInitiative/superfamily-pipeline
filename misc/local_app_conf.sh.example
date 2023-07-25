@@ -1,0 +1,15 @@
+export EFI_TOOLS_HOME=""
+export EFI_PERL_ENV=""
+export EFI_PIPELINE_HOME=""
+export EFI_INPUT_JOB_DIR=""
+export QUEUE="efi"
+
+source "/etc/profile"
+module load Perl
+module load efishared/devlocal
+module load efiest/devlocal
+module load efignt/devlocal
+module load singularity
+source $EFI_PERL_ENV
+module load efidb/ip93
+

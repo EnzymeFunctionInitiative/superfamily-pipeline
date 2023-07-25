@@ -10,14 +10,14 @@ use DBI;
 
 use lib "$FindBin::Bin/../../lib";
 
-use AutoPipeline qw(do_mkdir do_sql get_job_dir update_job_status run_job get_num_running_jobs get_jobs_from_db);
+use AutoPipeline qw(do_mkdir do_sql get_job_dir update_job_status run_job get_num_running_jobs get_jobs_from_db wait_lock);
 
 
 die "Needs EFI tools directory; the EFI_GNN environment variable must be set.\n" if not $ENV{EFI_GNN};
 die "Needs EFI tools directory; the EFI_EST environment variable must be set.\n" if not $ENV{EFI_EST};
 
 
-my ($jobMasterDir, $optAaList, $optMinSeqMsa, $debug, $mode, $jobPrefix, $dryRun, $maxCrJobs);
+my ($jobMasterDir, $optAaList, $optMinSeqMsa, $debug, $mode, $jobPrefix, $dryRun, $maxCrJobs, $perlEnv);
 my $result = GetOptions(
     "master-dir=s"          => \$jobMasterDir,
     "opt-aa-list=s"         => \$optAaList,
@@ -27,12 +27,15 @@ my $result = GetOptions(
     "min-cluster-size=i"    => \$optMinSeqMsa,
     "job-prefix=s"          => \$jobPrefix,
     "max-cr-jobs=i"         => \$maxCrJobs,
+    "perl-env=s"            => \$perlEnv,
 );
 
 
 my $dbFile = "$jobMasterDir/data.sqlite";
 my $dbh = DBI->connect("dbi:SQLite:dbname=$dbFile", "", "");
 die "No database connection\n" if not $dbh;
+
+$perlEnv = $ENV{EFI_PERL_ENV} // ($perlEnv // "");
 
 
 my $caStartApp = "$ENV{EFI_GNN}/make_colorssn_job.pl";
@@ -77,6 +80,9 @@ if ($mode =~ m/ca/) {
             do_mkdir($outDir, $dryRun);
         
             my $ssnIn = $job->{input_ssn_dir} . "/" . $job->{input_ssn_name};
+            print "Waiting for a lock\n";
+            wait_lock($ssnIn) or die "Unable to get a lock on input ssn for CA: $ssnIn";
+            print "Lock acquired\n";
             my $ssnOut = "ssn.xgmml";
         
             my @args = (@defaultArgs);
@@ -92,7 +98,7 @@ if ($mode =~ m/ca/) {
             push @args, "--job-id $jid";
         
             print "Running CA for $asid\n";
-            my $jobNum = run_job($asid, \@args, $caStartApp, $outDir, "ca_jobs", "HMM and stuff job is:", $dryRun);
+            my $jobNum = run_job($asid, \@args, $caStartApp, $outDir, "ca_jobs", "HMM and stuff job is:", $dryRun, $perlEnv);
             if ($jobNum) {
                 my $sql = "INSERT INTO ca_jobs (as_id, started, job_id, dir_path, ssn_name) VALUES ('$asid', 1, $jobNum, '$outDir/output', '$ssnOut')";
                 do_sql($sql, $dbh, $dryRun, $logFh);
@@ -122,6 +128,7 @@ if ($mode =~ m/cr/) {
             do_mkdir($outDir, $dryRun);
         
             my $ssnIn = $job->{input_ssn_dir} . "/" . $job->{input_ssn_name};
+            wait_lock($ssnIn) or die "Unable to get a lock on input ssn for CR: $ssnIn";
         
             (my $crid = $asid) =~ s/(mega_|cluster_)//;
             $crid =~ s/AS//;
@@ -133,9 +140,9 @@ if ($mode =~ m/cr/) {
             push @args, "--job-id $crid";
         
             print "Running CR for $asid\n";
-            my $jobNum = run_job($asid, \@args, $crStartApp, $outDir, "cr_jobs", "Wait for BLAST job is", $dryRun);
+            my $jobNum = run_job($asid, \@args, $crStartApp, $outDir, "cr_jobs", "Wait for BLAST job is", $dryRun, $perlEnv);
             if ($jobNum) {
-                my $sql = "INSERT INTO cr_jobs (as_id, started, job_id, dir_path) VALUES ('$asid', 1, $jobNum, '$outDir')";
+                my $sql = "INSERT INTO cr_jobs (as_id, started, job_id, dir_path) VALUES ('$asid', 1, $jobNum, '$outDir/output')";
                 do_sql($sql, $dbh, $dryRun, $logFh);
             }
         }

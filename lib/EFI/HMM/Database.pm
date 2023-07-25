@@ -30,6 +30,7 @@ sub new {
 
     $self->{dbh} = getHandle($self->{sqlite}, $self->{dryrun});
     $self->{insert_count} = 0;
+    $self->{exec_count} = 0;
 
     $self->{uniref_version} = $args{uniref_version} // 90;
 
@@ -53,24 +54,26 @@ sub validateInputs {
         "load-swissprot-file=s",
         "load-pdb-file=s",
         "load-taxonomy-file=s",
-        "load-sfld-map-file=s",
-        "load-sfld-desc-file=s",
+        #"load-subgroup-map-file=s",
+        "load-subgroup-desc-file=s",
         "load-id-list-script=s",
         "load-diced",
-        "load-tigr-file=s",
-        "load-tigr-names=s",
+        "load-tigr-ids-file=s",
+        "load-tigr-info-file=s",
         "load-region-file=s",
         "load-netinfo-file=s",
         "load-dicing-file=s",
-#        "load-ssn-file=s",
+        #"load-ssn-file=s",
         "load-uniref-file=s",
         "load-conv-ratio-script=s",
         "load-cons-res-script=s",
         "load-anno-file=s",
-        "job-id-file=s",
         "append-to-db", # don't recreate the table if it already exists
         "dryrun|dry-run",
         "uniref-version=i",
+        "columns=s@",
+        "output-file=s",
+        "table=s",
     );
 
     die &$getUsageFn("require --sqlite-file argument") if not $opts{"sqlite-file"};
@@ -86,12 +89,12 @@ sub validateInputs {
     $parms{load_swissprot_file} = $opts{"load-swissprot-file"} // "";
     $parms{load_pdb_file} = $opts{"load-pdb-file"} // "";
     $parms{load_taxonomy_file} = $opts{"load-taxonomy-file"} // "";
-    $parms{load_sfld_map_file} = $opts{"load-sfld-map-file"} // "";
-    $parms{load_sfld_desc_file} = $opts{"load-sfld-desc-file"} // "";
+    #$parms{load_subgroup_map_file} = $opts{"load-subgroup-map-file"} // "";
+    $parms{load_subgroup_desc_file} = $opts{"load-subgroup-desc-file"} // "";
     $parms{load_id_list_script} = $opts{"load-id-list-script"} // "";
     $parms{load_diced} = defined $opts{"load-diced"} ? 1 : 0;
-    $parms{load_tigr_file} = $opts{"load-tigr-file"} // "";
-    $parms{load_tigr_names} = $opts{"load-tigr-names"} // "";
+    $parms{load_tigr_ids_file} = $opts{"load-tigr-ids-file"} // "";
+    $parms{load_tigr_info_file} = $opts{"load-tigr-info-file"} // "";
     $parms{load_region_file} = $opts{"load-region-file"} // "";
     $parms{load_netinfo_file} = $opts{"load-netinfo-file"} // "";
     $parms{load_dicing_file} = $opts{"load-dicing-file"} // "";
@@ -100,10 +103,12 @@ sub validateInputs {
     $parms{load_conv_ratio_script} = $opts{"load-conv-ratio-script"} // "";
     $parms{load_cons_res_script} = $opts{"load-cons-res-script"} // "";
     $parms{load_anno_file} = $opts{"load-anno-file"} // "";
-    $parms{job_id_file} = $opts{"job-id-file"} // "";
     $parms{append_to_db} = $opts{"append-to-db"} // "";
     $parms{dryrun} = $opts{"dryrun"} // "";
     $parms{uniref_version} = $opts{"uniref-version"} // 90;
+    $parms{columns} = $opts{"columns"} // "";
+    $parms{output_file} = $opts{"output-file"} // "";
+    $parms{table} = $opts{"table"} // "";
 
     return \%parms;
 }
@@ -153,6 +158,8 @@ sub annoToSqlite {
 
     $self->createTable("annotations");
 
+    return if not -f $file;
+
     open my $fh, "<", $file;
 
     while (my $line = <$fh>) {
@@ -177,6 +184,8 @@ sub swissprotsToSqlite {
     my $spFile = shift;
 
     $self->createTable("swissprot");
+
+    return if not -f $spFile;
 
     open my $fh, "<", $spFile;
 
@@ -257,6 +266,77 @@ sub swissprotsToJson {
 
 
 # ID LIST METADATA #################################################################################
+
+
+sub idListsToSqlite2 {
+    my $self = shift;
+    my $mainDataDir = shift;
+    my $isDiced = shift || 0;
+    my $jobIdListFile = shift || "";
+
+    my $dicedPrefix = $isDiced ? "diced_" : "";
+    my $tableName = "${dicedPrefix}id_mapping";
+    my $tableNameUr50 = "${dicedPrefix}id_mapping_uniref50";
+    my $tableNameUr90 = "${dicedPrefix}id_mapping_uniref90";
+    $self->createTable($tableName);
+    $self->createTable($tableNameUr50);
+    $self->createTable($tableNameUr90);
+
+    my @src = ("uniprot");
+    push @src, "uniref50" if $self->{uniref_version} == 50;
+    push @src, "uniref90";
+
+    my $processFn = sub {
+        my $dir = shift;
+        my $ascore = shift || "";
+        my $ascoreCol = $ascore ? "ascore," : "";
+        my $ascorePH = $ascore ? "?," : "";
+        foreach my $src (@src) {
+            my $idTypeSuffix = $src ne "uniprot" ? "_$src" : "";
+            my $idColName = "${src}_id";
+            my $idFile = "$dir/$src.txt";
+            next if not -f $idFile;
+            (my $clusterId = $dir) =~ s%^.*/([^/]+)$%$1%;
+
+            my $sql = "INSERT INTO $tableName$idTypeSuffix (cluster_id, $ascoreCol $idColName) VALUES(?, $ascorePH ?)";
+            my $sth = $self->{dbh}->prepare($sql);
+
+            my @data = ($clusterId);
+            push @data, $ascore if $ascore;
+            push @data, "";
+
+            open my $ifh, "<", $idFile;
+            while (my $line = <$ifh>) {
+                chomp($line);
+                $data[$#data] = $line;
+                $self->batchExec($sth, @data);
+            }
+            close $ifh;
+            $self->finish();
+        }
+    };
+    my $processAllFn = sub {
+        my $dataDir = shift;
+        my $ascore = shift || "";
+        foreach my $dir (glob("$dataDir/cluster-*")) {
+            (my $clusterId = $dir) =~ s%^.*/([^/]+)$%$1%;
+            &$processFn($dir, $ascore);
+        }
+    };
+
+    if ($isDiced) {
+        my @cdirs = glob("$mainDataDir/cluster-*");
+        foreach my $cdir (@cdirs) {
+            foreach my $dir (glob("$cdir/dicing-*")) {
+                (my $ascore = $dir) =~ s/^.*dicing-(\d+)\/?$/$1/;
+                &$processAllFn($dir, $ascore);
+            }
+        }
+    } else {
+        &$processAllFn($mainDataDir);
+    }
+}
+
 
 sub idListsToSqlite {
     my $self = shift;
@@ -370,7 +450,7 @@ SCRIPT
     print $outFh <<SCRIPT;
 echo '.import "${masterLoadFileName}_uniref90.txt" ${dicedPrefix}id_mapping_uniref90' >> $loadSqlFile
 
-#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
+echo 'sqlite3 $self->{sqlite} < $loadSqlFile'
 
 SCRIPT
 
@@ -412,6 +492,8 @@ sub keggToSqlite {
 
     $self->createTable("kegg");
 
+    return if not -f $keggFile;
+
     open my $fh, "<", $keggFile;
 
     while (<$fh>) {
@@ -444,8 +526,9 @@ sub pdbToSqlite {
     my $self = shift;
     my $pdbFile = shift;
 
-    my $table = "pdb";
-    $self->createTable($table);
+    $self->createTable("pdb");
+
+    return if not -f $pdbFile;
 
     open my $fh, "<", $pdbFile;
 
@@ -453,7 +536,7 @@ sub pdbToSqlite {
         chomp;
         my ($upId, $pdbVals) = split(m/\t/);
         my $valStr = join(", ", map { "\"$_\"" } ($upId, $pdbVals));
-        my $sql = "INSERT INTO $table (uniprot_id, pdb) VALUES ($valStr)";
+        my $sql = "INSERT INTO pdb (uniprot_id, pdb) VALUES ($valStr)";
         $self->batchInsert($sql);
     }
 
@@ -475,6 +558,8 @@ sub taxonomyToSqlite {
     my $taxonomyFile = shift;
 
     $self->createTable("taxonomy");
+
+    return if not -f $taxonomyFile;
 
     open my $fh, "<", $taxonomyFile;
 
@@ -503,41 +588,43 @@ sub taxonomyToJson {
 
 # SFLD METADATA ####################################################################################
 
-sub sfldMapToSqlite {
+#sub subgroupMapToSqlite {
+#    my $self = shift;
+#    my $subgroupFile = shift;
+#
+#    $self->createTable("subgroup_map");
+#
+#    open my $fh, "<", $subgroupFile;
+#
+#    while (<$fh>) {
+#        chomp;
+#        my ($clusterId, $subgroupVals) = split(m/\t/, $_, -1);
+#        foreach my $subgroup (split(m/[,;]/, $subgroupVals)) {
+#            my $valStr = "\"$clusterId\", \"$subgroup\"";
+#            my $sql = "INSERT INTO subgroup_map (cluster_id, subgroup_id) VALUES ($valStr)";
+#            $self->batchInsert($sql);
+#        }
+#    }
+#
+#    close $fh;
+#}
+
+
+sub subgroupDescToSqlite {
     my $self = shift;
-    my $sfldFile = shift;
+    my $subgroupFile = shift;
 
-    $self->createTable("sfld_map");
+    $self->createTable("subgroup_desc");
 
-    open my $fh, "<", $sfldFile;
+    return if not -f $subgroupFile;
+
+    open my $fh, "<", $subgroupFile;
 
     while (<$fh>) {
         chomp;
-        my ($clusterId, $sfldVals) = split(m/\t/, $_, -1);
-        foreach my $sfld (split(m/[,;]/, $sfldVals)) {
-            my $valStr = "\"$clusterId\", \"$sfld\"";
-            my $sql = "INSERT INTO sfld_map (cluster_id, sfld_id) VALUES ($valStr)";
-            $self->batchInsert($sql);
-        }
-    }
-
-    close $fh;
-}
-
-
-sub sfldDescToSqlite {
-    my $self = shift;
-    my $sfldFile = shift;
-
-    $self->createTable("sfld_desc");
-
-    open my $fh, "<", $sfldFile;
-
-    while (<$fh>) {
-        chomp;
-        my ($sfldId, $desc, $color) = split(m/\t/, $_, -1);
-        my $valStr = "\"$sfldId\", \"$desc\", \"$color\"";
-        my $sql = "INSERT INTO sfld_desc (sfld_id, sfld_desc, sfld_color) VALUES ($valStr)";
+        my ($subgroupId, $desc, $color) = split(m/\t/, $_, -1);
+        my $valStr = "\"$subgroupId\", \"$desc\", \"$color\"";
+        my $sql = "INSERT INTO subgroup_desc (subgroup_id, subgroup_desc, subgroup_color) VALUES ($valStr)";
         $self->batchInsert($sql);
     }
 
@@ -546,26 +633,26 @@ sub sfldDescToSqlite {
 
 
 #TODO:
-sub sfldToJson {
+sub subgroupToJson {
     my $self = shift;
     my $json = shift;
 
-    $json->{sfld_desc} = {};
+    $json->{subgroup_desc} = {};
 
-    my $descSql = "SELECT * FROM sfld_desc";
+    my $descSql = "SELECT * FROM subgroup_desc";
     my $sth = $self->{dbh}->prepare($descSql);
     $sth->execute;
     while (my $row = $sth->fetchrow_hashref) {
-        $json->{sfld_desc}->{$row->{sfld_id}} = {desc => $row->{sfld_desc}, color => $row->{sfld_color}};
+        $json->{subgroup_desc}->{$row->{subgroup_id}} = {desc => $row->{subgroup_desc}, color => $row->{subgroup_color}};
     }
 
-    $json->{sfld_map} = {};
+    $json->{subgroup_map} = {};
 
-    my $mapSql = "SELECT * FROM sfld_map";
+    my $mapSql = "SELECT * FROM subgroup_map";
     $sth = $self->{dbh}->prepare($mapSql);
     $sth->execute;
     while (my $row = $sth->fetchrow_hashref) {
-        push @{$json->{sfld_map}->{$row->{cluster_id}}}, $row->{sfld_id};
+        push @{$json->{subgroup_map}->{$row->{cluster_id}}}, $row->{subgroup_id};
     }
 }
 
@@ -577,6 +664,8 @@ sub ecToSqlite {
     my $ecFile = shift;
 
     $self->createTable("enzymecode");
+
+    return if not -f $ecFile;
 
     open my $fh, "<", $ecFile;
 
@@ -610,6 +699,61 @@ sub enzymeCodeToJson {
 
 # CONVERGENCE RATIO METADATA #######################################################################
 
+sub convRatioToSqlite2 {
+    my $self = shift;
+    my $mainDataDir = shift;
+    my $isDiced = shift || 0;
+
+    my $dicedPrefix = $isDiced ? "diced_" : "";
+    print "IF YOU WANT TO NOT APPEND TO conv_ratio THEN YOU NEED TO DELETE THE TABLE FIRST.\n";
+    my $tableName = "${dicedPrefix}conv_ratio";
+    if (not $self->tableExists($tableName)) {
+        $self->createTable($tableName);
+    }
+
+    my $processFn = sub {
+        my $dataDirs = shift;
+        my $ascore = shift || "";
+        my $ascoreCol = $ascore ? "ascore," : "";
+        my $ascorePH = $ascore ? "?," : "";
+        foreach my $dir (@$dataDirs) {
+            (my $clusterId = $dir) =~ s%^.*(cluster[\-\da-z]*[\-\d]+).*?$%$1%;
+            my $crFile = "$dir/conv_ratio.txt";
+            next if not -f $crFile;
+    
+            open my $cfh, "<", $crFile;
+            my $header = <$cfh>;
+            my $dataLine = <$cfh>;
+            close $cfh;
+    
+            my ($cnum, @data) = split(m/\t/, $dataLine);
+            my $sql = "INSERT INTO $tableName (cluster_id, $ascoreCol conv_ratio, num_ids, num_blast, node_conv_ratio, num_nodes, num_edges) VALUES (?, $ascorePH ?, ?, ?, ?, ?, ?)";
+            my $sth = $self->{dbh}->prepare($sql);
+            my @values = ($clusterId);
+            push @values, $ascore if $ascore;
+            push @values, @data;
+            $self->batchExec($sth, @values);
+        }
+    };
+
+    if ($isDiced) {
+        my @dirs = glob("$mainDataDir/cluster-*");
+        foreach my $dir (@dirs) {
+            foreach my $ascoreDir (glob("$dir/dicing-*")) {
+                (my $ascore = $ascoreDir) =~ s/^.*dicing-(\d+)\/?$/$1/;
+                my @asCl = glob("$ascoreDir/cluster-*");
+                &$processFn(\@asCl, $ascore);
+            }
+        }
+    } else {
+        my @dirs = glob("$mainDataDir/cluster-*");
+        &$processFn(\@dirs);
+    }
+
+    $self->finish();
+}
+
+
 sub convRatioToSqlite {
     my $self = shift;
     my $mainDataDir = shift;
@@ -642,7 +786,7 @@ SCRIPT
         my $ascore = shift || "";
         my $ascoreCol = $ascore ? "\t$ascore" : "";
         foreach my $dir (@$dataDirs) {
-            (my $clusterId = $dir) =~ s%^.*(cluster[\-\d]+).*?$%$1%;
+            (my $clusterId = $dir) =~ s%^.*(cluster[\-\da-z]*[\-\d]+).*?$%$1%;
             my $crFile = "$dir/conv_ratio.txt";
             print $outFh <<SCRIPT;
 sed 's/^\\([0-9]\\+\\)/$clusterId$ascoreCol/' $crFile | awk 'NR$compOp {print \$0;}' >> $masterLoadFile
@@ -684,14 +828,85 @@ SCRIPT
 
 echo '.import "${masterLoadFile}" ${dicedPrefix}conv_ratio' >> $loadSqlFile
 
-#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
+echo 'sqlite3 $self->{sqlite} < $loadSqlFile'
 
 SCRIPT
 
     close $outFh;
 }
 
+
 # CONSENSUS RESIDUE METADATA #######################################################################
+
+sub consResToSqlite2 {
+    my $self = shift;
+    my $mainDataDir = shift;
+    my $isDiced = shift || 0;
+
+    my $dicedPrefix = $isDiced ? "diced_" : "";
+    my $tableName = "${dicedPrefix}cons_res";
+    $self->createTable($tableName);
+
+    my $processFn = sub {
+        my $dataDir = shift;
+        my $output = shift;
+        my $ascore = shift || "";
+        (my $clusterId = $dataDir) =~ s%^.*(cluster[\-\da-z][\-\d]+)$%$1%;
+
+        # Find all of the available consensus residue results
+        my %files = map { my $a = $_; $a =~ s%^.*residue_([A-Z])_.*$%$1%i; $_ => $a } grep { m/consensus_?residue_([A-Z])_position/i } glob("$dataDir/*.txt");
+
+        foreach my $crFile (keys %files) {
+            my $res = $files{$crFile};
+            open my $fh, "<", $crFile or warn "Unable to read CR flie $crFile: $!" and return 0;
+            my $header = <$fh>;
+            while (my $line = <$fh>) {
+                chomp($line);
+                my ($a, $pct, $num) = split(m/\t/, $line);
+                my $row = {id => $clusterId, cr => $res, pct => $pct, num => $num};
+                $row->{as} = $ascore if $ascore;
+                push @$output, $row;
+            }
+            close $fh;
+        }
+    };
+
+    my $outputData = [];
+
+    if ($isDiced) {
+        my @dirs = glob("$mainDataDir/cluster-*");
+        foreach my $dir (@dirs) {
+            foreach my $ascoreDir (glob("$dir/dicing-*")) {
+                (my $ascore = $ascoreDir) =~ s/^.*dicing-(\d+)\/?$/$1/;
+                foreach my $cDir (glob("$ascoreDir/cluster-*")) {
+                    &$processFn($cDir, $outputData, $ascore);
+                }
+            }
+        }
+    } else {
+        my @dirs = glob("$mainDataDir/cluster-*");
+        foreach my $dir (@dirs) {
+            &$processFn($dir, $outputData);
+        }
+    }
+
+    my $ascoreCol = $isDiced ? "ascore," : "";
+    my $ascorePH = $isDiced ? "?," : "";
+    foreach my $row (@$outputData) {
+        my $sql = "INSERT INTO $tableName (cluster_id, $ascoreCol residue, percent, num_res) VALUES (?, $ascorePH ?, ?, ?)";
+        my $sth = $self->{dbh}->prepare($sql);
+
+        my @row = ($row->{id});
+        push @row, $row->{as} if $isDiced;
+        push @row, $row->{cr};
+        push @row, $row->{pct};
+        push @row, $row->{num};
+
+        $self->batchExec($sth, @row);
+    }
+    
+    $self->finish();
+}
 
 sub consResToSqlite {
     my $self = shift;
@@ -717,12 +932,24 @@ SCRIPT
     my $processFn = sub {
         my $dataDir = shift;
         my $ascore = shift || "";
+        my $ascoreDir = shift || "";
         my $ascoreCol = $ascore ? "$ascore\t" : "";
-        (my $clusterId = $dataDir) =~ s%^.*(cluster[\-\d]+)$%$1%;
-        my $crFile = "$dataDir/consensus_residue_C_position.txt";
-        print $outFh <<SCRIPT;
-awk 'NR>1 {print "$clusterId\t$ascoreCol"\$2"\t"\$3;}' $crFile >> $masterCrLoadFile
+        (my $clusterId = $dataDir) =~ s%^.*(cluster[\-\da-z][\-\d]+)$%$1%;
+
+        # Find all of the available consensus residue results
+        my @files = glob("$dataDir/consensus_residue_*.txt");
+        my @res = map { s%^.*consensus_residue_([A-Z])_.*$%$1%i; $_ } @files;
+
+        foreach my $res (@res) {
+            my $crFile = "$dataDir/consensus_residue_${res}_position.txt";
+            open my $fh, "<", $crFile or warn "Unable to read CR flie $crFile: $!" and return 0;
+            while (my $line = <$fh>) {
+            print $outFh <<SCRIPT;
+awk 'NR>1 {print "$clusterId\t$ascoreCol$res\t"\$2"\t"\$3;}' $crFile >> $masterCrLoadFile
 SCRIPT
+            }
+            close $fh;
+        }
     };
 
     if ($isDiced) {
@@ -731,7 +958,7 @@ SCRIPT
             foreach my $ascoreDir (glob("$dir/dicing-*")) {
                 (my $ascore = $ascoreDir) =~ s/^.*dicing-(\d+)\/?$/$1/;
                 foreach my $cDir (glob("$ascoreDir/cluster-*")) {
-                    &$processFn($cDir, $ascore);
+                    &$processFn($cDir, $ascore, $ascoreDir);
                 }
             }
         }
@@ -747,7 +974,7 @@ SCRIPT
 echo 'SELECT "LOADING $masterCrLoadFile";' >> $loadSqlFile
 echo '.import "$masterCrLoadFile" ${dicedPrefix}cons_res' >> $loadSqlFile
 
-#WRAPUP sqlite3 $self->{sqlite} < $loadSqlFile
+echo 'sqlite3 $self->{sqlite} < $loadSqlFile'
 
 SCRIPT
 
@@ -1106,6 +1333,7 @@ sub dicingToSqlite {
         my $sql = "INSERT INTO diced_network (cluster_id, ascore, parent_id, parent_ascore) VALUES ($valStr)";
         $self->batchInsert($sql);
     }
+    close $fh;
 }
 
 
@@ -1147,75 +1375,6 @@ SQL
 
 # FAMILY ###########################################################################################
 
-sub readTigrData {
-    my $self = shift;
-    my $idFile = shift;
-    my $nameFile = shift;
-
-    my $names = {};
-    open my $nameFh, "<", $nameFile or die "Unable to read TIGR name file $nameFile: $!";
-    while (<$nameFh>) {
-        chomp;
-        my ($famId, $famDesc) = split(m/\t/);
-        $names->{$famId} = $famDesc;
-    }
-    close $nameFh;
-
-    #my $selectFn = sub {
-    #    my $tableName = shift;
-    #    my $uniProtId = shift;
-    #    my $famId = shift;
-    #    my $data = shift;
-    #    my $useAscore = shift // 0;
-
-    #    my $ascoreCol = $useAscore ? ", ascore" : "";
-    #    my $sql = "SELECT cluster_id $ascoreCol FROM $tableName WHERE uniprot_id = '$uniProtId'";
-    #    my $sth = $self->{dbh}->prepare($sql);
-    #    $sth->execute;
-
-    #    my $row = $sth->fetchrow_hashref;
-    #    if ($row) {
-    #        my $clusterId = $row->{cluster_id};
-    #        if ($useAscore) {
-    #            $data->{$clusterId}->{$row->{ascore}}->{$famId} = 1;
-    #        } else {
-    #            $data->{$clusterId}->{$famId} = 1;
-    #        }
-    #    }
-    #};
-
-    #my $data = {};
-    #my $dicedData = {};
-    my $idMap = {};
-
-    open my $fh, "<", $idFile or die "Unable to read TIGR data file $idFile: $!";
-    while (<$fh>) {
-        chomp;
-        #my ($clusterId, $famId, $famDesc) = split(m/\t/, $_, -1);
-        #push @{$data->{$clusterId}}, {id => $famId, description => $famDesc};
-        my ($uniProtId, $famId) = split(m/\t/);
-        #&$selectFn("id_mapping", $uniProtId, $famId, $data, 0);
-        #&$selectFn("diced_id_mapping", $uniProtId, $famId, $dicedData, 0);
-        $idMap->{$uniProtId} = $famId;
-
-    }
-    close $fh;
-
-    #return {id_map => $idMap, cluster_id_map => $data, diced_cluster_id_map => $dicedData, names => $names};
-    return {id_map => $idMap, names => $names};
-}
-
-
-#sub insertTigrDataForCluster {
-#    my $self = shift;
-#    my $clusterId = shift;
-#    my $data = shift;
-#
-#    foreach my $famInfo (@$data) {
-#        $self->insertClusterTigrDataRow($clusterId, $famInfo->{id});
-#    }
-#}
-
 
 sub insertTigrClusterDataRow {
     my $self = shift;
@@ -1237,69 +1396,66 @@ sub insertTigrClusterDataRow {
 }
 
 
-sub insertTigrDataRow {
+sub tigrInfoToSqlite {
     my $self = shift;
-    my $uniProtId = shift;
-    my $famId = shift;
+    my $tigrIdsFile = shift;
+    my $tigrInfoFile = shift;
 
-    my @vals = (getStrVal($uniProtId), getStrVal($famId));
-    my $valStr = join(", ", @vals);
+    $self->createTable("tigr");
 
-    my @cols = ("uniprot_id", "tigr");
-    my $colStr = join(",", @cols);
+    if ($tigrIdsFile and -f $tigrIdsFile) {
+        my $sql = "INSERT INTO tigr (uniprot_id, tigr) VALUES (?, ?)";
+        my $idSth = $self->{dbh}->prepare($sql);
 
-    my $tableName = "tigr";
-    my $sql = "INSERT INTO $tableName ($colStr) VALUES ($valStr)";
-    $self->batchInsert($sql);
+        open my $fh, "<", $tigrIdsFile or die "Unable to read tigr IDs $tigrIdsFile: $!";
+        while (my $line = <$fh>) {
+            chomp($line);
+            $line =~ s/^\s*(.*?)\s*$/$1/;
+            next if not $line;
+            my ($id, $tigr) = split(m/\t/, $line);
+            $self->batchExec($idSth, $id, $tigr);
+        }
+        close $fh;
+    }
+
+    $self->createTable("family_info");
+    if ($tigrInfoFile and -f $tigrInfoFile) {
+        open my $fh, "<", $tigrInfoFile or die "Unable to read tigr info $tigrInfoFile file: $!";
+        my $sql = "INSERT OR IGNORE INTO family_info (family, description) VALUES (?, ?)";
+        my $sth = $self->{dbh}->prepare($sql);
+        while (my $line = <$fh>) {
+            chomp($line);
+            my ($fam, $desc) = split(m/\t/, $line);
+            $self->batchExec($sth, $fam, $desc);
+        }
+        close $fh;
+    }
+    $self->finish;
 }
 
 
-sub insertTigrData {
+# RETRIEVAL FUNCTIONS ##############################################################################
+
+
+sub getTabularData {
     my $self = shift;
-    my $shared = shift;
+    my $table = shift;
+    my $col = shift;
 
-    #$self->createTable("families");
-    #$self->createTable("families_diced");
-    $self->createTable("tigr");
+    my $cols = join(", ", @$col);
 
-    my $insertData = sub {
-        my $data = shift;
-        foreach my $id (keys %$data) {
-            $self->insertTigrDataRow($id, $data->{$id});
-        }
-    };
-    # Don't use right now
-    my $insertClusterData = sub {
-        my $data = shift;
-        my $isDiced = shift // 0;
-        foreach my $clusterId (sort keys %$data) {
-            if ($isDiced) {
-                foreach my $ascore (keys %{$data->{$clusterId}}) {
-                    foreach my $famId (keys %{$data->{$clusterId}->{$ascore}}) {
-                        $self->insertClusterTigrDataRow($clusterId, $famId, $ascore);
-                    }
-                }
-            } else {
-                foreach my $famId (keys %{$data->{$clusterId}}) {
-                    $self->insertClusterTigrDataRow($clusterId, $famId, 0);
-                }
-            }
-        }
-    };
+    my $sql = "SELECT $cols FROM $table";
+    my $sth = $self->{dbh}->prepare($sql);
+    $sth->execute();
 
-    &$insertData($shared->{id_map});
-    #&$insertClusterData($shared->{cluster_id_map}, 1);
-    #&$insertClusterData($shared->{diced_cluster_id_map}, 1);
-
-    $self->createTable("family_info");
-    if ($shared->{names}) {
-        my $names = $shared->{names};
-        foreach my $famId (keys %$names) {
-            my $valStr = join(", ", getStrVal($famId), getStrVal($names->{$famId}));
-            my $sql = "INSERT OR IGNORE INTO family_info (family, description) VALUES ($valStr)";
-            $self->batchInsert($sql);
-        }
+    my @data;
+    while (my $row = $sth->fetchrow_arrayref()) {
+        push @data, [@$row];
     }
+
+    $self->finish();
+
+    return \@data;
 }
 
 
@@ -1331,14 +1487,14 @@ sub createTable {
         "pdb" => ["uniprot_id TEXT", "pdb TEXT"],
         "tigr" => ["uniprot_id TEXT", "tigr TEXT"],
         "taxonomy" => ["uniprot_id TEXT", "tax_id TEXT", "domain TEXT", "kingdom TEXT", "phylum TEXT", "class TEXT", "taxorder TEXT", "family TEXT", "genus TEXT", "species TEXT"],
-        "sfld_desc" => ["sfld_id TEXT", "sfld_desc TEXT", "sfld_color TEXT"],
-        "sfld_map" => ["cluster_id TEXT", "sfld_id TEXT"],
+        "subgroup_desc" => ["subgroup_id TEXT", "subgroup_desc TEXT", "subgroup_color TEXT"],
+#        "subgroup_map" => ["cluster_id TEXT", "subgroup_id TEXT"],
         "families" => ["cluster_id TEXT", "family TEXT", "family_type TEXT"],
 #        "families_diced" => ["cluster_id TEXT", "ascore INT", "family TEXT", "family_type TEXT"],
         "family_info" => ["family TEXT PRIMARY KEY", "description TEXT"],
         "uniref_map" => ["uniprot_id TEXT", "uniref90_id TEXT", "uniref50_id TEXT"],
         "conv_ratio" => ["cluster_id TEXT", "conv_ratio REAL", "num_ids INT", "num_blast INT", "node_conv_ratio REAL", "num_nodes INT", "num_edges INT"],
-        "cons_res" => ["cluster_id TEXT", "percent INT", "num_res INT"],
+        "cons_res" => ["cluster_id TEXT", "residue CHAR(1)", "percent INT", "num_res INT"],
         "annotations" => ["uniprot_id TEXT", "doi TEXT"],
         
         "diced_size" => ["cluster_id TEXT", "ascore INT", "uniprot INT DEFAULT 0", "uniref90 INT DEFAULT 0", "uniref50 INT DEFAULT 0"],
@@ -1348,7 +1504,7 @@ sub createTable {
         "diced_id_mapping_uniref90" => ["cluster_id TEXT", "ascore INT", "uniref90_id TEXT"],
 #        "diced_ssn" => ["cluster_id TEXT", "ascore TEXT"],
         "diced_conv_ratio" => ["cluster_id TEXT", "ascore INT", "conv_ratio REAL", "num_ids INT", "num_blast INT", "node_conv_ratio REAL", "num_nodes INT", "num_edges INT"],
-        "diced_cons_res" => ["cluster_id TEXT", "ascore INT", "percent INT", "num_res INT"],
+        "diced_cons_res" => ["cluster_id TEXT", "ascore INT", "residue CHAR(1)", "percent INT", "num_res INT"],
     };
 
     my $indexes = {
@@ -1432,6 +1588,18 @@ sub batchInsert {
         $self->{dbh}->commit;
     }
     $self->{dbh}->do($sql);
+}
+
+
+sub batchExec {
+    my $self = shift;
+    my $sth = shift;
+
+    if (++$self->{exec_count} % 100000 == 0) {
+        $self->{exec_count} = 0;
+        $self->{dbh}->commit;
+    }
+    $sth->execute(@_);
 }
 
 

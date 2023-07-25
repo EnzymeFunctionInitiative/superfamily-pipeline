@@ -1,5 +1,5 @@
 #!/bin/env perl
-$! = 1;
+$r = 1;
 
 die "Needs EFI_TOOLS_HOME directory; the EFI_TOOLS environment variable must be set.\n" if not $ENV{EFI_TOOLS_HOME};
 
@@ -16,7 +16,7 @@ use lib "$ENV{EFI_TOOLS_HOME}/lib";
 use EFI::Annotations;
 
 
-my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile, $tigrOut);
+my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile, $tigrOut, $tigrDesc);
 my $result = GetOptions(
     "db-file=s"             => \$dbFile, #sqlite
     "id-file=s"             => \$idFile, # the cluster ID list file to use; optionally put :# after the filename to pick col #
@@ -28,7 +28,8 @@ my $result = GetOptions(
     "pdb-output=s"          => \$pdbOut,
     "taxonomy-output=s"     => \$taxOut,
     "swissprot-output=s"    => \$spOut,
-    "tigr-output=s"         => \$tigrOut, #TODO:????
+    "tigr-output=s"         => \$tigrOut,
+    "tigr-desc=s"           => \$tigrDesc,
     "fix-swissprot"         => \$rewriteSP,
 );
 
@@ -109,7 +110,17 @@ if ($taxOut) {
 if ($tigrOut) {
     print "Output tigr\n";
     outputTable($tigrOut, $data->{tigr});
+
+    if ($tigrDesc) {
+        my $tdata = getTigrDesc($self, $data->{tigr});
+        open my $fh, ">", $tigrDesc or die "Unable to open tigr desc $tigrDesc for writing: $!";
+        foreach my $fam (sort keys %$tdata) {
+            $fh->print(join("\t", $fam, $tdata->{$fam}), "\n");
+        }
+        close $fh;
+    }
 }
+
 
 print "Done output\n";
 
@@ -192,7 +203,7 @@ SQL
         push @{$data->{sp}->{$clusterId}}, [$id, $sp] if $row->{swissprot_status} and $sp;
         push @{$data->{kegg}->{$clusterId}}, [$id, $md->{kegg}] if ($md->{kegg} and $md->{kegg} ne "None");
         push @{$data->{pdb}->{$clusterId}}, [$id, $md->{pdb}] if ($md->{pdb} and $md->{pdb} ne "None");
-        push @{$data->{tigr}->{$clusterId}}, [$id, $row->{tigr_id}] if $tigrOut and $row->{tigr_id};
+        push @{$data->{tigr}->{$clusterId}}, [$id, $row->{tigr_id}] if $row->{tigr_id};
         if ($md->{organism} and $row->{taxonomy_id}) {
             my @vals;
             @vals = ($row->{taxonomy_id}, $row->{domain} // "", $row->{kingdom} // "", $row->{phylum} // "", $row->{class} // "", $row->{tax_order} // "", $row->{family} // "", $row->{genus} // "", $row->{species} // "");
@@ -281,6 +292,27 @@ sub readEcDb {
     close $fh;
 
     return $db;
+}
+
+
+sub getTigrDesc {
+    my $self = shift;
+    my $clusterData = shift;
+    my %fams;
+    foreach my $cid (keys %$clusterData) {
+        map { $fams{$_->[1]} = 1; } @{ $clusterData->{$cid} };
+    }
+    my $sql = "SELECT long_name FROM family_info WHERE family = ?";
+    my $sth = $self->{dbh}->prepare($sql);
+    foreach my $fam (keys %fams) {
+        print "|$fam|\n";
+        $sth->execute($fam);
+        my $row = $sth->fetchrow_hashref();
+        if ($row) {
+            $fams{$fam} = $row->{long_name};
+        }
+    }
+    return \%fams;
 }
 
 
