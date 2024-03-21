@@ -1,0 +1,217 @@
+UniProt ID	Citation (Hyperlinked DOI #1)	Citation (Hyperlinked DOI #2)	Citation (Hyperlinked DOI #3)
+Q9X5S2	https://doi.org/10.1016/S1074-5521(99)80040-4		
+A0A060PWX2	https://doi.org/10.1002/anie.201402623		
+A0A062UZ78	https://doi.org/10.1126/science.aao6595		
+A0A0E1M5B1	http://dx.doi.org/10.1002/pro.3529		
+A0A0E3RYH2	https://doi.org/10.1002/anie.201803183		
+A0A0H3KB22	https://doi.org/10.1093/nar/29.5.1097	https://doi.org/10.1007/BF00290574	https://doi.org/10.1002/chem.201604719
+A0A0H4NV78	https://doi.org/10.1021/jacs.6b10901		
+A0A0K0K526	https://doi.org/10.1021/ja312641f		
+A0A0M3N271	https://doi.org/10.1021/acs.biochem.8b00693		
+A0A0Z8EWX1	http://dx.doi.org/10.1073/pnas.1703663114		
+A0A144V459	https://doi.org/10.1111/1462-2920.12509		
+A0A1C7D1B6	http://dx.doi.org/10.1038/nsmb.3265		
+A0A1C7D1B7	http://dx.doi.org/10.1038/nsmb.3265		
+A0A1H7F4G6	https://doi.org/10.1002/anie.202107192		
+A0A1I5E523	https://doi.org/10.1111/febs.14307	https://doi.org/10.1016/j.febslet.2010.04.053	
+A0A1M5XT65	https://doi.org/10.1111/1462-2920.15346		
+A0A1W6VU85	https://doi.org/10.1021/jacs.0c08585		
+A0A2W5DYM3	https://doi.org/10.1073/pnas.1508440112	http://dx.doi.org/10.1126/science.1241859	http://dx.doi.org/10.1021/acs.biochem.5b01216
+A0A2Z6BLR4	https://doi.org/10.1021/acs.biochem.9b00197		
+A0A376LGD9	http://www.jbc.org/content/285/8/5240		
+A0A378Y5A1	https://doi.org/10.1021/jacs.9b01520		
+A0A5C8IMA7	https://doi.org/10.1021/acs.biochem.9b00197		
+A0A656FYS1	https://doi.org/10.1021/acschembio.6b01069		
+A0A6B9HEI0	https://doi.org/10.1039/C9CC07197K		
+A0A6F8Z1X2	https://doi.org/10.3390/biom10050775		
+A0A7C9KC68	https://doi.org/10.1038/s41586-019-1791-1		
+A0A7G7KS84	https://doi.org/10.1002/anie.202015177		
+A0B690	https://pubs.acs.org/doi/10.1021/jacs.0c02243		
+A0PM49	https://doi.org/10.1074/jbc.M117.795682		
+A1B2Q7	https://doi.org/10.1074/jbc.M115.638320		
+A3DDW1	https://doi.org/10.1021/jacs.7b01283		
+A4IQU1	https://doi.org/10.1093/nar/gks603	https://doi.org/10.3389/fchem.2017.00014	
+A4J6G2	https://doi.org/10.1016/j.bbapap.2006.11.008		
+A4VXX3	https://doi.org/10.1021/jacs.9b05151		
+A5HBL2	https://doi.org/10.1261/rna.1371409		
+A6L094	not yet published. Only the structure reported.		
+A6M1R8	https://doi.org/10.1021/ja504618y		
+A8R0J3	https://doi.org/10.1038/ja.2007.63		
+A8R0J7	https://doi.org/10.1038/ja.2007.63		
+A8R0J8	https://doi.org/10.1038/ja.2007.63		
+B1C2R2	http://dx.doi.org/10.1073/pnas.1909604116		
+B1KQP7	https://doi.org/10.1038/s41467-018-05217-1		
+B3QHD1	https://doi.org/10.1073/pnas.0912949107		
+B8J367	https://doi.org/10.1016/j.bbapap.2014.03.016		
+B9ZUJ4	https://doi.org/10.1016/j.chembiol.2008.11.005		
+C0JRZ9	https://doi.org/10.1016/j.chembiol.2009.01.007	https://doi.org/10.1021/jacs.5b12592	http://doi.org/10.1038/ncomms9377
+C2TQ82	https://doi.org/10.1371/journal.pone.0020852		
+C3HC15	https://doi.org/10.1021/jacs.9b01519		
+C3HC16	https://doi.org/10.1021/jacs.9b01519		
+C6FX51	https://www.nature.com/articles/nchembio.512	https://doi.org/10.1002/anie.201407320	http://dx.doi.org/10.1126/science.aad8995
+C6FX53	https://doi.org/10.1002/anie.201712224	https://doi.org/10.1021/cb900133x	https://doi.org/10.1021/jacs.8b13157
+C6XW09	https://doi.org/10.1021/acs.biochem.0c00070		
+C7P8S7	https://doi.org/10.1111/j.1365-2958.2005.04989.x		
+D0QZJ5	https://doi.org/10.1002/anie.201102527	https://doi.org/10.1016/j.febslet.2015.05.032	
+D1C4T7	not yet published. Only the structure reported		
+D2KTX6	https://doi.org/10.1021/ja902261a		
+D2KTX8	https://doi.org/10.1021/ja902261a		
+D2SNF5	https://doi.org/10.1021/acs.biochem.8b00264	https://doi.org/10.1021/acs.biochem.8b00693	
+D3EIG6	https://doi.org/10.1021/acs.biochem.9b00197		
+D3T7F1	http://dx.doi.org/10.1073/pnas.1417252112		
+D5SLH5	https://doi.org/10.1021/bi901018q		
+D5VRB9	http://dx.doi.org/10.1038/s41467-019-08579-2		
+D5VRM1	https://doi.org/10.3389/fpls.2017.01567	https://doi.org/10.1021/jacs.6b03329	
+D6Y4Z7	https://doi.org/10.1021/jacs.7b00693		
+D8G6F8	https://doi.org/10.1002/anie.201400478	https://doi.org/10.1002/anie.201609469	
+E2D677	https://doi.org/10.1111/mmi.14430		
+E5DUI3	http://dx.doi.org/10.1074/jbc.M111.224832		
+E5KJ95	https://doi.org/10.1016/j.bbapap.2011.11.006		
+F2R7B0	https://doi.org/10.1039/C6SC03533G		
+F2R7B1	https://doi.org/10.1039/C6SC03533G 		
+F5AT08	https://doi.org/10.1073/pnas.0913554107		
+F5AT09	https://doi.org/10.1073/pnas.0913554107		
+F8JND9	https://doi.org/10.1073/pnas.1508615112		
+F8JNE0	https://doi.org/10.1128/AAC.01366-10		
+F8JNE4	https://doi.org/10.1128/AAC.01366-10		
+G0LD12	https://doi.org/10.1074/jbc.RA120.015371		
+G0LD27	https://doi.org/10.1074/jbc.RA120.015371		
+G1WJU6	https://doi.org/10.1111/1462-2920.15345		
+G1WKZ6	https://doi.org/10.1111/1462-2920.15344		
+G9MQB8	http://dx.doi.org/10.1074/jbc.RA118.003998		
+I3NN68	https://doi.org/10.1021/ja211098r		
+I7G6W7	https://doi.org/10.1016/bs.mie.2018.04.015		
+J9ZW10	https://science.sciencemag.org/content/338/6105/387.long		
+J9ZW29	https://doi.org/10.1021/jacs.7b08402		
+J9ZXD6	http://doi.org/10.1021/jacs.6b06697		
+K4MHG1	https://doi.org/10.1016/j.chembiol.2012.08.013	https://doi.org/10.1039/C2SC21183A	
+K4MHV5	https://doi.org/10.1039/C2SC21183A	https://doi.org/10.1016/j.chembiol.2012.08.013	
+K4MJZ5	https://doi.org/10.1016/j.chembiol.2012.08.013	https://doi.org/10.1039/C2SC21183A	
+N0DKX5	https://doi.org/10.1074/jbc.M116.767665		
+O24770	http://dx.doi.org/10.1038/nature21689	https://doi.org/10.1271/bbb.63.563	
+O27899	https://doi.org/10.1073/pnas.1510409112		
+O31423	https://doi.org/10.1021/ja310542g	http://dx.doi.org/10.2210/pdb6EFN/pdb	
+O31677	https://doi.org/10.1021/bi900400e	https://doi.org/10.1021/acs.biochem.5b00210	
+O54060	https://doi.org/10.1093/nar/29.5.1097		
+O58832	https://doi.org/10.1007/s00775-019-01702-0.	https://doi.org/10.1038/nature09138	
+O58832 	https://doi.org/10.1038/nature09138	https://doi.org/10.1021/acs.biochem.8b00287	
+O59412	http://dx.doi.org/10.1107/S0907444907040668		
+O70600	https://doi.org/10.1096/fasebj.14.3.523	https://doi.org/10.1096/fasebj.14.3.523	
+O87941	https://doi.org/10.1046/j.1365-2958.1998.00826.x	https://doi.org/10.1111/j.1574-6976.1998.tb00381.x	
+P00459	https://doi.org/10.1021/acs.accounts.7b00417		
+P0A9N4	https://doi.org/10.1073/pnas.0806640105	http://dx.doi.org/10.1126/science.aaf5327	https://doi.org/10.1021/bi00214a005
+P0A9N8	https://doi.org/10.1021/bi002936q		
+P11067	https://doi.org/10.1126/science.1224603	https://doi.org/10.1074/jbc.270.45.26890	https://doi.org/10.1074/jbc.R114.578161
+P12996	https://doi.org/10.1021/bi00178a020	https://doi.org/10.1021/jacs.8b07613	https://doi.org/10.1074/jbc.R114.599308
+P26168	https://doi.org/10.1073/pnas.97.12.6908	https://doi.org/10.1146/annurev.genet.31.1.61	
+P27507	http://doi.org/10.1074/jbc.C115.699918		
+P30140	https://doi.org/10.1002/anie.200702554		
+P30745 	https://doi.org/10.1046/j.1432-1327.1998.2550024.x		
+P32131	http://doi.org/10.1074/jbc.M512628200	https://doi.org/10.1111/mmi.12951	
+P32461	https://doi.org/10.1126/science.aao6595		
+P36979	http://dx.doi.org/10.1126/science.1205358	https://doi.org/10.1021/ja410560p	http://dx.doi.org/10.1126/science.aad5367
+P37956 	https://doi.org/10.1128/JB.180.18.4879-4885.1998		
+P39280	https://doi.org/10.1021/bi061328t		
+P39409	https://doi.org/10.1371/journal.pcbi.1002228		
+P40487	https://doi.org/10.1126/science.aao6595		
+P52062	https://doi.org/10.1073/pnas.1416285112	https://doi.org/10.1074/jbc.RA117.000229	
+P54462	http://dx.doi.org/10.1074/jbc.m110.106831		
+P60716	http://dx.doi.org/10.1021/bi049528x	https://doi.org/10.1128/jb.175.5.1325-1336.1993	
+P65388	http://dx.doi.org/10.1073/pnas.0404624101		
+P65389	http://dx.doi.org/10.1073/pnas.0404624101		
+P69848	http://dx.doi.org/10.1073/pnas.0510711103	https://doi.org/10.1021/acs.biochem.9b00741	https://doi.org/10.1021/jacs.0c01200
+P71011	https://doi.org/10.1128/JB.181.23.7346-7355.1999	https://doi.org/10.1039/c6cc01317a	
+P71517	https://doi.org/10.1186/1471-2091-9-8	http://dx.doi.org/10.1021/acs.biochem.7b01097	https://doi.org/10.1074/jbc.C115.699918
+P9WJ78	http://doi.org/10.1002/1873-3468.12249	https://pubs.acs.org/doi/pdf/10.1021/acs.biochem.6b00355	
+P9WJ79	https://doi.org/10.1186/1471-2164-12-21	https://doi.org/10.1002/1873-3468.12249	
+P9WK91	http://dx.doi.org/10.1073/pnas.1602486113	http://dx.doi.org/10.1021/acs.biochem.5b01216	
+P9WP73	https://doi.org/10.1073/pnas.1416285112		
+P9WP77	https://pubs.acs.org/doi/10.1021/ja307762b		
+Q02908	https://doi.org/10.1261/rna.7247705	https://doi.org/10.1016/j.molcel.2005.02.018 	https://doi.org/10.1074/jbc.M403361200
+Q08960	https://doi.org/10.1038/sj.emboj.7601105		
+Q0TTH1	https://doi.org/10.1021/ja067175e		
+Q12Q22	https://doi.org/10.1016/j.bbapap.2014.09.009		
+Q185C5	https://doi.org/10.1016/j.bbapap.2006.11.008		
+Q1Q0N1	https://doi.org/10.1186/1745-6150-4-8		
+Q2MEW6	https://doi.org/10.1038/ja.2016.110		
+Q2MFI7	https://doi.org/10.1002/anie.201510635	https://doi.org/10.1021/jacs.7b10501	https://doi.org/10.1021/jacs.6b02221
+Q2MG55	https://doi.org/10.1016/j.chembiol.2014.12.012		
+Q38HX2	https://doi.org/10.1007/s00775-013-1008-2		
+Q38HX4	https://doi.org/10.1159/000440882		
+Q3ABV3	http://dx.doi.org/10.1002/cbic.201402661	https://doi.org/10.1074/jbc.M801161200	
+Q3ME29	https://doi.org/10.1186/1471-2164-12-21		
+Q3ME30	https://doi.org/10.1002/anie.201400478	https://doi.org/10.1002/anie.201609469	
+Q45595	http://doi.org/10.1038/nchem.2714		
+Q46CH7	https://doi.org/10.1155/2014/327637	https://doi.org/10.1039/C6SC01140C	
+Q46E78	https://doi.org/10.1038/nature09918		
+Q4J8I0	https://doi.org/10.1073/pnas.1909306116		
+Q4J8R4	https://doi.org/10.1073/pnas.1814048115		
+Q4JC22	https://doi.org/10.1073/pnas.1909306116		
+Q50258	https://doi.org/10.7164/antibiotics.48.1191		
+Q51741	https://doi.org/10.1128/jb.177.16.4817-4819.1995		
+Q53U14	https://doi.org/10.1021/ja507759f		
+Q54273	https://doi.org/10.1016/0378-1119(95)00101-b		
+Q56184	https://doi.org/10.1039/b614678c	https://doi.org/10.1021/acs.biochem.7b00472	https://doi.org/10.1021/acs.biochem.8b00616
+Q57705	https://doi.org/10.1016/j.jmb.2007.07.024	https://doi.org/10.1021/jacs.8b01493	
+Q57888	https://pubs.acs.org/doi/10.1021/ja513287k	https://doi.org/10.1007/s00203-003-0614-8	
+Q58036	https://doi.org/10.1128/JB.01903-14		
+Q58195	https://doi.org/10.1128/JB.01125-09		
+Q58826	https://pubs.acs.org/doi/10.1021/ja307762b	https://doi.org/10.1021/ja513287k	https://doi.org/10.1007/s00203-003-0614-8
+Q5IW50	https://doi.org/10.1021/bi201220r		
+Q5JE80	https://doi.org/10.1038/s41589-019-0390-7		
+Q5SK48	https://doi.org/10.1021/ja408594p	https://doi.org/10.1021/jacs.7b04209	
+Q5VV42	https://dx.doi.org/10.7150%2Fijbs.49302		
+Q60AV6	https://doi.org/10.1073/pnas.0912949107		
+Q6E3K8	https://doi.org/10.1128/AEM.70.12.7303-7310.2004		
+Q6PSL4	https://doi.org/10.1074/jbc.M403206200		
+Q6QVU0	https://doi.org/10.1016/j.bbrc.2008.05.133		
+Q70KE5	https://doi.org/10.1021/ja312641f		
+Q712I6	https://doi.org/10.1111/j.1365-2958.1995.tb02269.x	https://doi.org/10.1038/nchembio.2187	
+Q796V8	https://www.ncbi.nlm.nih.gov/pubmed/?term=10498703		
+Q841K7	https://doi.org/10.1002/cbic.200300583		
+Q841K9	https://doi.org/10.1371/journal.pone.0068545		
+Q84F14	https://doi.org/10.1021/bi060840b		
+Q8A2W0	https://doi.org/10.1021/jacs.9b11093		
+Q8CBB9	http://dx.doi.org/10.1073/pnas.1705402114	https://doi.org/10.1021/acs.biochem.9b00741	
+Q8DLC2	http://dx.doi.org/10.1042/BJ20140895	https://doi.org/10.1021/jacs.5b04387	
+Q8DT69	https://doi.org/10.1128/mBio.02688-20		
+Q8G907	https://doi.org/10.1073/pnas.1312228110	https://doi.org/10.1021/ja072481t	https://doi.org/10.1021/jacs.5b03384
+Q8GEZ7	https://doi.org/10.1073/pnas.0734105100	https://doi.org/10.1021/bi035930k	
+Q8GHB6	https://doi.org/10.1002/cbic.200300609		
+Q8KBK9	https://doi.org/10.1016/j.cbpa.2009.02.036		
+Q8KCU0	https://doi.org/10.1016/j.cbpa.2009.02.036		
+Q8R6P9	https://doi.org/10.1021/acs.biochem.6b00145		
+Q8RAM6	https://doi.org/10.1021/acs.biochem.6b00145		
+Q8RJJ1	https://doi.org/10.1038/s41598-017-17321-1		
+Q8THG6	https://doi.org/10.1074/jbc.RA119.007609		
+Q8THG6	https://doi.org/10.1038/s41598-018-25716-x		
+#Q8THG6.1	https://doi.org/10.1038/s41598-018-25716-x		
+Q8THK1	https://doi.org/10.1038/s41589-019-0390-7		
+Q8TIF7	https://doi.org/10.1073/pnas.1510409112		
+Q8WXG1	https://doi.org/10.1016/j.febslet.2010.02.041		
+Q8X6Z3	https://doi.org/10.1039/C8OB02906G		
+Q93KV6	https://doi.org/10.1074/jbc.M601508200		
+Q96SZ6	https://doi.org/10.1093/nar/gks240	https://doi.org/10.1016/S0378-1119(99)00499-0	https://dx.doi.org/10.7150%2Fijbs.49302
+Q97IK9	https://doi.org/10.1021/bi501205e	https://doi.org/10.1016/j.febslet.2008.04.063	
+Q97L63	https://doi.org/10.1021/ja807375c		
+Q9A6Q5	http://doi.org/10.1038/nchembio.121		
+Q9FB10	https://doi.org/10.1039/b615284h		
+Q9FBG4	https://doi.org/10.1261/rna.1371409		
+Q9K864	http://doi.org/10.1021/bi400498d		
+Q9KZZ7	https://doi.org/10.1039/C8OB02906G		
+Q9NZB8	https://doi.org/10.1021/ja512997j		
+Q9RCI2 	https://doi.org/10.1128/JB.181.23.7256-7265.1999		
+Q9S1L5	https://doi.org/10.1002/anie.200801204		
+Q9WY26	http://dx.doi.org/10.1038/nchembio.1579		
+Q9WZC1	http://dx.doi.org/10.1074/jbc.m408562200	https://doi.org/10.1074/jbc.M301518200	https://doi.org/10.1002/anie.201713188
+Q9X0Z6	https://doi.org/10.1074/jbc.M801161200	https://doi.org/10.1074/jbc.M801161200	
+Q9X2H6	http://dx.doi.org/10.1074/jbc.M109.065516	http://dx.doi.org/10.1021/ja4048448 	http://dx.doi.org/10.1038/nchembio.1229
+Q9X5R8	https://doi.org/10.1016/S1074-5521(99)80040-4		
+Q9X758	https://doi.org/10.1074/jbc.M209435200	https://doi.org/10.1074/jbc.M313855200	
+Q9X7W1	https://doi.org/10.1002/anie.201911584		
+Q9XAP2	https://doi.org/10.1021/bi400498d	https://doi.org/10.1126/science.1160446	
+Q9XBQ8	https://doi.org/10.1073/pnas.0505726102	https://doi.org/10.1128/JB.182.2.469-476.2000	https://doi.org/10.1128/JB.182.2.469-476.2000
+Q9ZGH1	https://doi.org/10.1021/ja909451a	https://doi.org/10.1039/A804431G	https://doi.org/10.1021/jacs.5b02545
+U1XSN3	https://doi.org/10.1111/1462-2920.12509		
+V0VQG0	https://doi.org/10.1073/pnas.1603209113		
+V8LSZ7	http://doi.org/10.1038/nchem.2237		

@@ -28,6 +28,7 @@ die getUsage("require --load-dicing-file") if $parms->{mode} =~ m/dicing/ and no
 #die getUsage("require --load-ssn-file") if $parms->{mode} =~ m/ssn/ and not $parms->{load_ssn_file};
 die getUsage("require --load-uniref-file") if $parms->{mode} =~ m/uniref\-?map/ and not $parms->{load_uniref_file};
 die getUsage("require --load-anno-file") if $parms->{mode} =~ m/load-anno/ and not $parms->{load_anno_file};
+die getUsage("require --load-alphafold-file") if $parms->{mode} =~ m/load-alphafolds/ and not $parms->{load_alphafold_file};
 
 my $db = new EFI::HMM::Database($parms);
 
@@ -59,6 +60,9 @@ if ($parms->{mode} =~ m/id\-list/) {
 if ($parms->{mode} =~ m/sizes/) {
     $db->networkSizeToSqlite();
 }
+if ($parms->{mode} =~ m/cluster-index/) {
+    $db->createClusterIndexTable();
+}
 if ($parms->{mode} =~ m/tigr/) {
     $db->tigrInfoToSqlite($parms->{load_tigr_ids_file}, $parms->{load_tigr_info_file});
 }
@@ -88,6 +92,9 @@ if ($parms->{mode} =~ m/cons\-res/) {
 }
 if ($parms->{mode} =~ m/load\-anno/) {
     $db->annoToSqlite($parms->{load_anno_file});
+}
+if ($parms->{mode} =~ m/load\-alphafolds/) {
+    $db->alphafoldToSqlite($parms->{load_alphafold_file});
 }
 
 # commit database

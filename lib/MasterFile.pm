@@ -4,6 +4,7 @@ package MasterFile;
 
 use Exporter qw(import);
 
+use Data::Dumper;
 
 our @EXPORT_OK = qw(parse_master_file make_file_cluster_id);
 
@@ -41,7 +42,7 @@ sub parse_master_file {
     chomp(my $header = <$fh>);
     die "Invalid header file $file (empty)" if not $header;
     $header =~ s/^#//;
-    my %keymap = ("cluster" => "cluster_id", "uniref50 generate job" => "ur50_job", "uniref90 generate job" => "ur90_job", "subgroup id" => "sub_id", "min len" => "min_len", "max len" => "max_len", "dicing as" => "dicing_as", "image as" => "image_as");
+    my %keymap = ("cluster" => "cluster_id", "uniref50 generate job" => "ur50_job", "uniref90 generate job" => "ur90_job", "subgroup id" => "sub_id", "description" => "desc", "min len" => "min_len", "max len" => "max_len", "dicing as" => "dicing_as", "image as" => "image_as", "image generate job" => "image_job_type");
     my @cols = split(m/\t/, lc $header);
     my %hmap = map { ($keymap{$cols[$_]} // "") => $_ } 0..$#cols;
 
@@ -49,33 +50,36 @@ sub parse_master_file {
         chomp $line;
         next if ($line =~ m/^\s*#/ or $line =~ m/^\s*$/);
         my @parts = split(m/\t/, $line);
-        my ($clusterName, $uniref50JobId, $uniref90JobId, $minLen, $maxLen, $imageAscore, $ascores, $subId) =
-            map { $parts[$hmap{$_}] } ("cluster_id", "ur50_job", "ur90_job", "min_len", "max_len", "image_as", "dicing_as", "sub_id");
+        my ($clusterName, $uniref50JobId, $uniref90JobId, $minLen, $maxLen, $primaryAscore, $primaryAscoreJobType, $ascores, $subId, $desc) =
+            map { $parts[$hmap{$_}] } ("cluster_id", "ur50_job", "ur90_job", "min_len", "max_len", "image_as", "image_job_type", "dicing_as", "sub_id", "desc");
 
         my $isPlaceholder = (not $uniref50JobId and not $uniref90JobId and $clusterName) ? 1 : 0;
         
         my $clusterId = make_file_cluster_id($clusterName);
+
+        my $primaryUnirefVersion = ($primaryAscore and lc $primaryAscoreJobType eq "uniref50" and $uniref50JobId) ? 50 : 90;
 
         my @ascores;
         my $jobId = "";
         if ($isPlaceholder) {
             $minLen = "";
             $maxLen = "";
-            $imageAscore = "";
+            $primaryAscore = "";
         } else {
             @ascores = parse_ascores(split(m/,/, $ascores));
-            $jobId = $unirefVersion == 50 ? $uniref50JobId : $uniref90JobId;
+            $jobId = $uniref90JobId ? $uniref90JobId : $uniref50JobId;
+            #$jobId = (($primaryAscoreJobType and lc $primaryAscoreJobType eq "uniref50" and $uniref50JobId) or $unirefVersion == 50) ? $uniref50JobId : $uniref90JobId;
         }
-        $data->{$clusterId} = {cluster_name => $clusterName, job_id => $jobId, min_len => $minLen, max_len => $maxLen, ascores => \@ascores, primary_ascore => $imageAscore, children => []};
+        my $cdata = {cluster_name => $clusterName, job_id => $jobId, min_len => $minLen, max_len => $maxLen, ascores => \@ascores, primary_ascore => $primaryAscore, children => [], primary_uniref => $primaryUnirefVersion};
+        $data->{$clusterId} = $cdata;
 
+        $cdata->{image_job} = ($primaryAscore and lc $primaryAscoreJobType eq "uniref50" and $uniref50JobId) ? $uniref50JobId : $uniref90JobId;
+        $cdata->{subgroup_id} = $subId ? $subId : "";
+        $cdata->{description} = $desc ? $desc : "";
+        $cdata->{subgroup_color} = "";
         if ($subId and $subgroupInfo->{$subId}) {
-            $data->{$clusterId}->{subgroup_id} = $subId;
-            $data->{$clusterId}->{subgroup_name} = $subgroupInfo->{$subId}->{desc};
-            $data->{$clusterId}->{subgroup_color} = $subgroupInfo->{$subId}->{color};
-        } else {
-            $data->{$clusterId}->{subgroup_id} = 0;
-            $data->{$clusterId}->{subgroup_name} = "";
-            $data->{$clusterId}->{subgroup_color} = "";
+            $cdata->{description} = $subgroupInfo->{$subId}->{desc} if $subgroupInfo->{$subId}->{desc} and not $desc;
+            $cdata->{subgroup_color} = $subgroupInfo->{$subId}->{color};
         }
     }
 

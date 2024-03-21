@@ -14,9 +14,10 @@ source "$BASE_DIR/local_conf.sh"
 source "$BASE_DIR/local_app_conf.sh"
 
 BASE_ARGS="--master-dir $DATA_DIR --master-file $MASTER_FILE --queue $QUEUE"
+BASE_ARGS="$BASE_ARGS --ignore-finalize-errors"
 
 # Starts jobs if the run_collect process has completed
-$EFI_PIPELINE_HOME/bin/master.pl $BASE_ARGS --load-dir $LOAD_DIR --efi-db $EFI_DATABASE --support-files $EFI_PIPELINE_HOME/misc --create-new-gnd-db --action check-final
+$EFI_PIPELINE_HOME/bin/master.pl $BASE_ARGS --load-dir $LOAD_DIR --efi-db $EFI_DATABASE --support-files $PROJECT_DIR/support --create-new-gnd-db --action check-final
 
 rm $lock_file
 

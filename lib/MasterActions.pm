@@ -44,7 +44,7 @@ sub createFinalDb {
     my $masterScript = shift;
 
 
-    (my $dbVer = $efiDb) =~ s/^(.*)://;
+   (my $dbVer = $efiDb) =~ s/^(.*)://;
 
     my $metaBody = <<META;
 
@@ -128,10 +128,11 @@ $self->{app_dir}/collect_metadata_from_efidb.pl \\
     --swissprot-output $efiMetaDir/sp.txt \\
     --tigr-output $efiMetaDir/tigr_ids.txt \\
     --tigr-desc $efiMetaDir/tigr_info.txt \\
+    --alphafold-desc $efiMetaDir/alphafold.txt \\
     --master-id-file $allIdFile
 
-#echo "Getting UniRef IDs"
-#/home/n-z/noberg/dev/GNT/get_uniref_ids.pl --uniprot-ids $allIdFile --uniref-mapping $unirefMappingFile --v2 --config $dbConfigFile
+echo "Getting UniRef IDs"
+/home/n-z/noberg/dev/GNT/get_uniref_ids.pl --uniprot-ids $allIdFile --uniref-mapping $unirefMappingFile --v2 --config $dbConfigFile
 
 META
 
@@ -144,7 +145,7 @@ echo "Loading kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinf
 $self->{app_dir}/meta_to_sqlite.pl \\
     --sqlite-file $dataDbFile \\
     --data-dir $dataDir \\
-    --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref,netinfo,subgroup-desc,tigr \\
+    --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,subgroup-desc,tigr,load-alphafolds \\
     --load-kegg-file $efiMetaDir/kegg.txt \\
     --load-swissprot-file $efiMetaDir/sp.txt \\
     --load-pdb-file $efiMetaDir/pdb.txt \\
@@ -154,14 +155,20 @@ $self->{app_dir}/meta_to_sqlite.pl \\
     --load-netinfo-file $netInfoFile \\
     --load-subgroup-desc-file $subgroupInfoFile \\
     --load-tigr-info-file $efiMetaDir/tigr_info.txt \\
-    --load-tigr-ids-file $efiMetaDir/tigr_ids.txt
+    --load-tigr-ids-file $efiMetaDir/tigr_ids.txt \\
+    --load-uniref-file $unirefMappingFile \\
+    --load-alphafold-file $efiMetaDir/alphafold.txt \\
 #    --mode kegg,swissprot,pdb,load-anno,taxonomy,enzymecode,uniref-map,netinfo,subgroup-desc,tigr \\
-#    --load-uniref-file $unirefMappingFile \\
 
 
 $self->{app_dir}/meta_to_sqlite.pl \\
     --sqlite-file $dataDbFile \\
     --mode sizes
+
+$self->{app_dir}/meta_to_sqlite.pl \\
+    --sqlite-file $dataDbFile \\
+    --data-dir $dataDir \\
+    --mode cluster-index
 
 touch $scriptDir/build.finished
 
@@ -317,8 +324,8 @@ sub getJobDirs {
     foreach my $clusterId (keys %$masterData) {
         my $kids = $masterData->{$clusterId}->{children};
         next if not $masterData->{$clusterId}->{job_id}; # Placeholder (i.e. parent cluster)
-        my $isDiced = @{$masterData->{$clusterId}->{ascores}} > 0;
-        next if $isDiced;
+        #my $isDiced = @{$masterData->{$clusterId}->{ascores}} > 0;
+        #next if $isDiced;
         my $dirPath = "$loadDir/$clusterId";
         $fh->print(join("\t", $clusterId, "", $dirPath), "\n");
     }
@@ -340,8 +347,10 @@ SQL
     my $dbh = &{$self->{get_dbh}}();
     my @jobs = get_jobs_from_db($sql, $dbh, $self->{dry_run}, $self->{log_fh});
     foreach my $job (@jobs) {
-        my $isDiced = @{$masterData->{$job->{cluster_id}}->{ascores}} > 0;
+        my $md = $masterData->{$job->{cluster_id}};
+        my $isDiced = @{$md->{ascores}} > 0;
         next if not $isDiced;
+        next if $job->{ascore} == $md->{primary_ascore};
         $fh->print(join("\t", $job->{cluster_id}, $job->{ascore}, $job->{dir_path}), "\n");
     }
 
@@ -354,8 +363,6 @@ sub getUniProtIds {
     my $efiMetaDir = shift;
     my $masterData = shift;
 
-    my $idFile = "$efiMetaDir/id_mapping_non_diced.txt";
-    my $dicedIdFile = "$efiMetaDir/id_mapping_diced.txt";
     my $allIdFile = "$efiMetaDir/id_mapping_all.txt";
 
     my $dbh = &{$self->{get_dbh}}();
@@ -385,7 +392,7 @@ sub getAscoreMapFile {
     my $self = shift;
     my $efiMetaDir = shift;
     my $masterData = shift;
-    
+
     my $dbh = &{$self->{get_dbh}}();
     my ($dicedDirs, $msg) = $self->getClusterAscoreJobPaths($dbh, $masterData);
 
@@ -425,27 +432,46 @@ sub getNetInfoFiles {
     open my $subgroupMapFh, ">", $outSubgroupMapFile;
 
     my $topLevel = "fullnetwork";
-    
+
     foreach my $clusterId (@clusterIds) {
         my $md = $masterData->{$clusterId};
         (my $clusterName = $md->{cluster_name}) =~ s/^mega-/Megacluster-/i;
-        my $parentId = $md->{job_id} ? "" : $topLevel; # This one is a placeholder for the top level children
-        my $netInfoLine = join("\t", $clusterId, $clusterName, $md->{subgroup_id}, "", $parentId);
+        my $parentId = $self->getParentId($clusterId, $topLevel); # $md->{job_id} ? "" : $topLevel; # This one is a placeholder for the top level children
+        my $subgroupId = $md->{subgroup_id};
+        my $netInfoLine = join("\t", $clusterId, $clusterName, "", $md->{description}, $parentId, $subgroupId);
         $netInfoFh->print($netInfoLine, "\n");
-    
+
         if ($md->{subgroup_id} and $md->{subgroup_color}) {
             my $color = $md->{subgroup_color};
-            my $subgroupMapLine = join("\t", $clusterId, $md->{subgroup_id}, $md->{subgroup_color});
+            my $subgroupMapLine = join("\t", $clusterId, $md->{subgroup_id}, $md->{description}, $md->{subgroup_color});
             $subgroupMapFh->print($subgroupMapLine, "\n");
         }
     }
 
     $netInfoFh->print(join("\t", $topLevel, "", "", "", ""), "\n");
-    
+
     close $subgroupMapFh;
     close $netInfoFh;
 
     return ($outNetInfoFile, $outSubgroupMapFile);
+}
+
+
+sub getParentId {
+    my $self = shift;
+    my $clusterId = shift;
+    my $topLevel = shift;
+
+    my $parentId = "";
+
+    my @p = split(m/-/, $clusterId);
+    if (@p < 3) {
+        $parentId = $topLevel;
+    } else {
+        $parentId = join("-", @p[0..($#p-1)]);
+    }
+
+    return $parentId;
 }
 
 
@@ -646,12 +672,12 @@ sub listSsnFiles {
 
 sub updateCollectStatus {
     my $self = shift;
-    my $splitFlag = shift // 0;
+    my $optionFlag = shift // 0;
 
     my $dbh = &{$self->{get_dbh}}();
-    my @jobs = $self->getCollectionJobs($dbh, $splitFlag);
+    my @jobs = $self->getCollectionJobs($dbh, $optionFlag);
 
-    my $key = $splitFlag == DataCollection::SPLIT ? "split_job_id" : "collect_job_id";
+    my $key = ($optionFlag & DataCollection::SPLIT) ? "split_job_id" : "collect_job_id";
 
     my @messages;
 
@@ -662,13 +688,14 @@ sub updateCollectStatus {
         push @messages, "No data for $asid" and next if not $jobData->{$key};
         my @ids = split(m/,/, $jobData->{$key});
         my $slurmFinished = checkSlurmStatus(@ids);
+        print "$asid $slurmFinished $jobData->{$key}\n";
         if ($slurmFinished) {
-            my $finishFile = $splitFlag == DataCollection::SPLIT ? $jobData->{dir_path} . "/ssn.xgmml" : "";
+            my $finishFile = ($optionFlag & DataCollection::SPLIT) ? $jobData->{dir_path} . "/ssn.xgmml" : "";
             if ($finishFile and -f $finishFile) {
                 push @messages, "$asid split finished";
                 my $sql = "UPDATE collect_jobs SET split_finished = 1 WHERE as_id = '$asid'";
                 do_sql($sql, $dbh, $self->{dry_run}, $self->{log_fh});
-            } elsif ($splitFlag == DataCollection::COLLECT) {
+            } elsif ($optionFlag & DataCollection::COLLECT) {
                 push @messages, "$asid collect finished";
                 my $sql = "UPDATE collect_jobs SET collect_finished = 1 WHERE as_id = '$asid'";
                 do_sql($sql, $dbh, $self->{dry_run}, $self->{log_fh});
@@ -685,16 +712,38 @@ sub makeCollect {
     my $masterData = shift;
     my $collectScriptDir = shift;
     my $loadDir = shift;
-    my $splitFlag = shift // 0;
+    my $optionFlag = shift // 0;
     my $minClusterSize = shift // 3;
     my $jobPrefix = shift // "";
+
+    my $messages1 = $self->makeCollect2($masterData, $collectScriptDir, $loadDir, $optionFlag, $minClusterSize, $jobPrefix);
+    my $messages2 = [];
+    if ($optionFlag & DataCollection::COLLECT) {
+        # We pass XIMAGE here to process the image-only clusters.
+        $messages2 = $self->makeCollect2($masterData, $collectScriptDir, $loadDir, $optionFlag | DataCollection::XIMAGE, $minClusterSize, $jobPrefix);
+    }
+
+    return [@$messages1, @$messages2];
+}
+
+
+sub makeCollect2 {
+    my $self = shift;
+    my $masterData = shift;
+    my $collectScriptDir = shift;
+    my $loadDir = shift;
+    my $optionFlag = shift // 0;
+    my $minClusterSize = shift // 3;
+    my $jobPrefix = shift // "";
+
+    my $isImageOnly = $optionFlag & DataCollection::XIMAGE;
 
     do_mkdir($collectScriptDir);
 
     my $collect = new DataCollection(script_dir => $collectScriptDir, overwrite => 0, queue => $self->{queue}, app_dir => $self->{app_dir}, dry_run => $self->{dry_run}, efi_tools_home => $self->{efi_tools_home});
 
     my $dbh = &{$self->{get_dbh}}();
-    my @jobs = $self->getFinishedJobsForCollection($dbh, $splitFlag, $minClusterSize);
+    my @jobs = $self->getFinishedJobsForCollection($dbh, $optionFlag, $minClusterSize);
 
     foreach my $jobData (@jobs) {
         my $clusterId = $jobData->{cluster_id};
@@ -706,12 +755,16 @@ sub makeCollect {
 
         my $md = $masterData->{$clusterId};
         my $children = $md->{children};
-        my $cd = {input_ca_dir => $ssnDir, input_ssn => $inputSsn, input_cr_dir => $jobData->{cr_dir}, output_dir => $outputDir,
-            children => $children};
-       
+        my $cd = {input_ca_dir => $ssnDir, input_ssn => $inputSsn, output_dir => $outputDir, children => $children};
+        $cd->{input_cr_dir} = $jobData->{cr_dir} if not $isImageOnly;
+
         # No children (leaf) and multiple ascores ==> a diced SSN. A non-diced SSN will not have any ascores in the ascore field
         # (it has a primary_ascore value instead).
-        my $isDiced = (not @$children and @{$md->{ascores}});
+        #my $isDiced = (not @$children and @{$md->{ascores}} and not $isImageOnly);
+        my $aaa = @{$md->{ascores}};
+        my $isDiced = (@{$md->{ascores}} > 0 and not $isImageOnly);
+        print("$asid $aaa is_diced=$isDiced is_image_only=$isImageOnly\n");
+        print(Dumper($md));
         #$cd->{ascore} = $jobData->{ascore}; # Always dice, even if it's a parent cluster
         $cd->{ascore} = $jobData->{ascore} if $isDiced;
 
@@ -728,16 +781,16 @@ sub makeCollect {
         #    next;
         #}
 
-        $collect->addCluster($asid, $clusterId, $cd, $dirPath, $splitFlag, $isDiced);
+        $collect->addCluster($asid, $clusterId, $cd, $dirPath, $optionFlag, $isDiced, $isImageOnly);
     }
 
-    my ($jobMap, $messages) = $collect->finish($splitFlag, $jobPrefix);
+    my ($jobMap, $messages) = $collect->finish($optionFlag, $jobPrefix);
 
     #TODO
     foreach my $asid (keys %$jobMap) {
         my $dirPath = $jobMap->{$asid}->{dir_path};
         my $sql = "";
-        if ($splitFlag == DataCollection::COLLECT) {
+        if ($optionFlag & DataCollection::COLLECT) {
             my $collectJobId = $jobMap->{$asid}->{collect_job_id};
             $collectJobId = join(",", @$collectJobId);
             $sql = "INSERT INTO collect_jobs (as_id, dir_path, started, collect_finished, split_finished, collect_job_id) VALUES ('$asid', '$dirPath', 1, 0, 0, '$collectJobId')";
@@ -760,17 +813,27 @@ sub getFinishedJobsForCollection {
     my $minClusterSize = shift;
 
     my $collectClause = "(J.started IS NULL OR J.started = 0)";
-    if ($collectFlag == DataCollection::SPLIT) {
+    if ($collectFlag & DataCollection::SPLIT) {
         $collectClause = "(J.collect_finished = 1 AND (J.split_job_id IS NULL OR J.split_job_id = ''))";
+    }
+    my $crClause = "AND R.finished = 1";
+    my $crDirPath = ", R.dir_path AS cr_dir";
+    my $crJoin = "LEFT JOIN cr_jobs AS R on C.as_id = R.as_id";
+    my $imageOnlyClause = "";
+    if ($collectFlag & DataCollection::XIMAGE) {
+        $crClause = "";
+        $crDirPath = "";
+        $crJoin = "";
+        $imageOnlyClause = "AND A.image_only = 1";
     }
 
     my $sql = <<SQL;
-SELECT C.as_id AS as_id, A.cluster_id AS cluster_id, A.uniref, A.ascore, C.dir_path AS ca_ssn_dir, C.ssn_name AS ca_ssn_name, R.dir_path AS cr_dir
+SELECT C.as_id AS as_id, A.cluster_id AS cluster_id, A.uniref, A.ascore, C.dir_path AS ca_ssn_dir, C.ssn_name AS ca_ssn_name, A.image_only $crDirPath
     FROM ca_jobs AS C
     LEFT JOIN as_jobs AS A ON C.as_id = A.as_id
-    LEFT JOIN cr_jobs AS R ON C.as_id = R.as_id
+    $crJoin
     LEFT JOIN collect_jobs AS J ON C.as_id = J.as_id
-WHERE A.finished = 1 AND C.finished = 1 AND C.max_cluster_size >= $minClusterSize AND R.finished = 1 AND $collectClause
+WHERE A.finished = 1 AND C.finished = 1 AND C.max_cluster_size >= $minClusterSize $crClause AND $collectClause $imageOnlyClause
 SQL
     return get_jobs_from_db($sql, $dbh, $self->{dry_run}, $self->{log_fh});
 }
@@ -783,7 +846,7 @@ sub getCollectionJobs {
     my $collectFlag = shift;
 
     my $collectClause = "J.collect_finished = 0";
-    if ($collectFlag == DataCollection::SPLIT) {
+    if ($collectFlag & DataCollection::SPLIT) {
         $collectClause = "J.collect_finished = 1 AND J.split_finished = 0";
     }
 
@@ -811,6 +874,10 @@ SQL
 }
 
 
+#
+# Get the directory in the output structure that corresponds to the parent cluster (if diced) or the cluster (not diced).
+# For example, if cluster-1-3 is diced, this would return "output_dir/cluster-1-3".
+#
 sub getFinishedJobPaths {
     my $self = shift;
     my $dbh = shift;
@@ -821,11 +888,7 @@ sub getFinishedJobPaths {
     foreach my $clusterId (keys %$masterData) {
         my $kids = $masterData->{$clusterId}->{children};
         next if not $masterData->{$clusterId}->{job_id}; # Placeholder (i.e. parent cluster)
-        if (scalar @$kids and not $useDiced) {
-            push @clusterIds, $clusterId;
-        } elsif (not scalar @$kids and $useDiced) {
-            push @clusterIds, $clusterId;
-        }
+        push @clusterIds, $clusterId;
     }
 
     my @messages;
@@ -842,7 +905,7 @@ SQL
         if ($job and $job->{dir_path} and -d $job->{dir_path}) {
             push @dirs, $job->{dir_path};
         } else {
-            push @messages, "Error with $sql, nothing found";
+            push @messages, "Unable to find $job->{dir_path} for cluster $clusterId";
         }
     }
 
@@ -857,9 +920,9 @@ sub getClusterAscoreJobPaths {
 
     my @clusterIds;
     foreach my $clusterId (keys %$masterData) {
-        my $kids = $masterData->{$clusterId}->{children};
         next if not $masterData->{$clusterId}->{job_id}; # Placeholder (i.e. parent cluster)
-        if (not scalar @$kids) {
+        my $ascores = $masterData->{$clusterId}->{ascores};
+        if (scalar @$ascores) {
             push @clusterIds, $clusterId;
         }
     }

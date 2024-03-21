@@ -21,24 +21,36 @@ job_info_db="$CYTO_DIR/job_info.sqlite"
 
 find_lock_file="$jobInfoDb.find.lock";
 touch $find_lock_file
+
+echo "Running find_ssns.pl at $(date)"
 /home/n-z/noberg/dev/cytoscape-util/batch_proc/bin/find_ssns.pl --db $job_info_db --ssn-root-dir $LOAD_DIR
+echo "Finished find_ssns.pl at $(date)"
+
 rm $find_lock_file
 
+quit_arg=""
+if [[ "$1" == "quit" ]]; then
+    quit_arg="--quit-all"
+fi
+
+TEMP_DIR=$CY_TEMP_DIR
 
 $CY_APP_HOME/bin/cyto_job_server.pl \
     --db $job_info_db \
     --script-dir $CYTO_DIR/scripts \
-    --temp-dir $CYTO_DIR/temp \
+    --temp-dir $TEMP_DIR \
     --cyto-util-dir $CY_UTIL_DIR \
     --py4cy-image $CY_APP_SIF_IMAGE \
     --max-cy-jobs $CY_NUM_JOBS \
     --log-file $CYTO_DIR/log.txt \
     --cyto-config-home $CY_CONFIG_HOME \
     --cyto-app $CY_APP_MASTER \
-    --image-conf verbose=no_verbose,style=style,zoom=400,crop=crop,name=ssn_lg \
+    --image-conf verbose=verbose,style=style,zoom=400,name=ssn_lg \
     --queue $QUEUE \
     --ssn-root-dir $LOAD_DIR \
-    --overwrite-images --cyto-multiple-mode --job-prefix cyto --cyto-job-uses $CY_NUM_USES
+    --overwrite-images --cyto-multiple-mode --job-prefix cyto --cyto-job-uses $CY_NUM_USES \
+    --delay $CY_DELAY $quit_arg
+#    --image-conf verbose=no_verbose,style=style,zoom=400,crop=crop,name=ssn_lg \
 
 rm $lock_file
 

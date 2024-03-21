@@ -76,7 +76,7 @@ if ($webtoolsDbConf) {
 
 if ($mode == 1) {
     my @mode1ascores = parseMode1Ascores($ascoreList);
-    startAscoreJobs($ssnJobPath, $jobMasterDir, "auto", "", \@mode1ascores);
+    startAscoreJobs($ssnJobPath, [$jobMasterDir, $jobMasterDir], "auto", "", \@mode1ascores);
     #unlink($lockFile);
     exit(0);
 }
@@ -84,14 +84,43 @@ if ($mode == 1) {
 
 my $masterData = parse_master_file($masterFile);
 
+
 foreach my $clusterId (keys %$masterData) {
+    print "Skipping cluster $clusterId: no job information\n" and next if (not $masterData->{$clusterId}->{job_id} or not $masterData->{$clusterId}->{primary_ascore});
     my $md = $masterData->{$clusterId};
     my $clusterJobPath = get_job_dir($jobMasterDir, $clusterId, $unirefVersion);
     do_mkdir($clusterJobPath, $dryRun) if not -d $clusterJobPath;
-    my $inDir = "$masterInputDir/" . $md->{job_id} . "/output";
 
-    my $isDiced = @{$md->{children}} == 0 and @{$md->{ascores}};;
-    my $finish = startAscoreJobs($inDir, $clusterJobPath, $clusterId, $md->{cluster_name}, $md, $isDiced);
+    my $isDiced = (@{$md->{children}} == 0 and @{$md->{ascores}}) ? 1 : 0;
+
+    my $imageJobPath = $clusterJobPath;
+    if ($md->{primary_uniref} and $md->{primary_uniref} != $unirefVersion) {
+        $imageJobPath = get_job_dir($jobMasterDir, $clusterId, $md->{primary_uniref});
+        do_mkdir($imageJobPath, $dryRun) if not -d $imageJobPath;
+    }
+
+    my $inDir = "$masterInputDir/" . $md->{job_id} . "/output";
+    my $imageInDir = "$masterInputDir/" . (($isDiced and $md->{image_job}) ? $md->{image_job} : $md->{job_id}) . "/output";
+
+    $md->{cluster_id} = $clusterId;
+    $md->{is_diced} = $isDiced;
+    $md->{input_job_path} = $inDir;
+    $md->{input_uniref} = checkForUniRef($inDir);
+    $md->{output_path} = $clusterJobPath;
+    $md->{image_job_path} = $imageInDir;
+    $md->{image_uniref} = $md->{primary_uniref};
+    $md->{image_output_path} = $imageJobPath;
+
+    #my $finish = startAscoreJobs($inDir, [$clusterJobPath, $imageJobPath], $clusterId, $md->{cluster_name}, $md, $isDiced, $imageInDir);
+    my $finish = startAscoreJobs($md);
+    #                             cluster_id => $clusterId,
+    #                             #cluster_name => $md->{cluster_name},
+    #                             metadata => $md,
+    #                             is_diced => $isDiced,
+    #                             generate_input_path => $inDir,
+    #                             generate_uniref => $inputUniref,
+    #                             cluster_output_path => $clusterJobPath,
+    #                             image_output_path => $imageJobPath, $clusterId, $md->{cluster_name}, $md, $isDiced, $imageInDir, [$uniref, $md->{primary_uniref}]);
     last if $finish;
 }
 
@@ -101,80 +130,107 @@ foreach my $clusterId (keys %$masterData) {
 
 
 sub startAscoreJobs {
-    my $jobPath = shift;
-    my $masterDir = shift;
-    my $clusterId = shift;
-    my $clusterName = shift;
-    my $ascoreData = shift;
-    my $isDiced = shift;
+    my $md = shift;
 
-    my $ssnNewParentDir = "$masterDir/as_job";
-    do_mkdir($ssnNewParentDir, $dryRun);
-    my $generateDir = "$ssnNewParentDir/output";
-    do_mkdir($generateDir, $dryRun);
-    
-    my $uniref = checkForUniRef($jobPath);
+    #my $jobPath = shift;
+    #my $masterDir = shift;
+    #my $clusterId = shift;
+    #my $clusterName = shift;
+    #my $ascoreData = shift;
+    #my $isDiced = shift;
+    #my $imageInDir = shift;
+    #my $unirefVersion = checkForUniRef($md->{input_job_path});
+
     my @asJobArgs = @defaultArgs;
-    push @asJobArgs, "--uniref-version $uniref" if $uniref;
-
-    runShellCommand("rm -rf $generateDir/AS-*") if $removeExisting;
-    if ($removeExisting or not -f "$generateDir/1.out.completed") {
-        runShellCommand("rsync -a --exclude='*/' $jobPath/ $generateDir");
-    }
-
-    my @ascores;
-    if (not $isDiced) {
-        @ascores = ($ascoreData->{primary_ascore});
-    } else {
-        @ascores = @{$ascoreData->{ascores}};
-        unshift @ascores, $ascoreData->{primary_ascore} if $ascores[0] != $ascoreData->{primary_ascore};
-    }
+    push @asJobArgs, "--uniref-version $md->{input_uniref}" if $md->{input_uniref};
 
     my $maxAsJobs = 25;
     my $asJobCount = get_num_running_jobs($dbh, "as_jobs", $dryRun);
-
     if ($asJobCount >= $maxAsJobs) {
         print "Too many running AS jobs to start any new ones.\n";
         return 1;
     }
 
-    foreach my $ascore (@ascores) {
+    my $startJobList = sub {
+        my $ascores = shift;
+        my $sourceDir = shift;
+        my $outputTopLevelPath = shift;
+        my $unirefVersion = shift || 0;
+        my $imageOnly = shift || 0;
 
-        my ($as, $minLen, $maxLen);
-        if ($mode == 1) {
-            $as = $ascore->[0];
-            $minLen = $ascore->[1];
-            $maxLen = $ascore->[2];
-        } else {
-            $as = $ascore;
-            $minLen = $ascoreData->{min_len};
-            $maxLen = $ascoreData->{max_len};
+        my $outputDirName = $imageOnly ? "output_image" : "output";
+        my $outputPath = "$outputTopLevelPath/$outputDirName";
+        do_mkdir($outputPath);
+
+        runShellCommand("rm -rf $outputPath/AS-*") if $removeExisting;
+        if ($removeExisting or not -f "$outputPath/1.out.completed") {
+            runShellCommand("rsync -a --exclude='*/' $sourceDir/ $outputPath");
         }
 
-        my $status = startJob($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $as, $minLen, $maxLen, \@asJobArgs, $isDiced);
-        next if not $status;
+        foreach my $ascore (@$ascores) {
+            my ($as, $minLen, $maxLen);
+            if ($mode == 1) {
+                $as = $ascore->[0];
+                $minLen = $ascore->[1];
+                $maxLen = $ascore->[2];
+            } else {
+                $as = $ascore;
+                $minLen = $md->{min_len};
+                $maxLen = $md->{max_len};
+            }
 
-        # Exit the loop if we are running the max number of jobs already.
-        last if $asJobCount++ > $maxAsJobs;
+            my $asDirName = "AS-$ascore";
+            my $outputAscorePath = "$outputPath/$asDirName";
+            do_mkdir($outputAscorePath);
 
+            my $status = startJob($outputTopLevelPath, $outputAscorePath, $outputDirName, $md->{cluster_id}, $md->{cluster_name}, $unirefVersion, $as, $minLen, $maxLen, \@asJobArgs, $md->{is_diced}, $imageOnly);
+            ++$asJobCount if $status;
+
+            # Exit the loop if we are running the max number of jobs already.
+            last if $asJobCount > $maxAsJobs;
+        }
+    };
+
+    my @ascores;
+    if (not $md->{is_diced}) {
+        @ascores = ($md->{primary_ascore});
+    } else {
+        @ascores = @{$md->{ascores}};
     }
 
-    return ($asJobCount >= $maxAsJobs);
+    if (($md->{is_diced} and $ascores[0] != $md->{primary_ascore}) or $md->{image_output_path} ne $md->{input_job_path}) {
+        my $imageTopLevelPath = "$md->{image_output_path}/as_job";
+        do_mkdir($imageTopLevelPath, $dryRun);
+        my $imageOnly = 1;
+        &$startJobList([$md->{primary_ascore}], $md->{image_job_path}, $imageTopLevelPath, $md->{image_uniref}, $imageOnly);
+    }
+
+    my $outputTopLevelPath = "$md->{output_path}/as_job";
+    do_mkdir($outputTopLevelPath, $dryRun);
+    &$startJobList(\@ascores, $md->{input_job_path}, $outputTopLevelPath, $md->{input_uniref});
+
+    return ($asJobCount >= $maxAsJobs) ? 1 : 0;
 }
 
 
 sub startJob {
-    my ($ssnNewParentDir, $generateDir, $clusterId, $clusterName, $uniref, $ascore, $minLen, $maxLen, $asJobArgs, $isDiced) = @_;
+    my ($outputTopLevelPath, $outputPath, $outputDirName, $clusterId, $clusterName, $uniref, $ascore, $minLen, $maxLen, $asJobArgs, $isDiced, $imageOnly) = @_;
 
     #my $evalDirName = "eval-$ascore-$minLen-$maxLen";
-    my $outputDirName = "AS-$ascore";
-    my $outputPath = "$generateDir/$outputDirName";
-    # Skip this one if it is already done.
-    return if -f "$outputPath/stats.tab.completed";
 
     my $asid = lc($clusterId =~ s/[^a-z0-9_]/_/igr);
     $asid .= "_AS$ascore";
-    #$asid .= "_ur$uniref" if $uniref;
+
+    # Skip this one if it is already done.
+    return 0 if -f "$outputPath/stats.tab.completed";
+
+    # Skip this one if it is in progress.
+    my $sql = "SELECT * FROM as_jobs WHERE as_id = ?";
+    my $sth = $dbh->prepare($sql);
+    $sth->execute($asid);
+    my $row = $sth->fetchrow_hashref;
+    return 0 if $row;
+
     my $title = makeTitle($clusterId, $ascore, $uniref); #"${clusterId}_$asid";
 
     if ($removeExisting and -d $outputPath) {
@@ -189,6 +245,7 @@ sub startJob {
     push @args, "--minval $ascore";
     push @args, "--job-id $jobPrefix" if $jobPrefix;
     push @args, "--output-path $outputPath";
+    push @args, "--results-dir-name $outputDirName";
 
     my $appStart = $startApp . " " . join(" ", @args);
     my $cmd = <<CMD;
@@ -196,12 +253,12 @@ source /etc/profile
 module load efiest/devlocal
 module load $ENV{EFI_DB_MOD}\n
 curdir=\$PWD
-cd $ssnNewParentDir
+cd $outputTopLevelPath
 # The PWD and cd stuff is because the scripts assume they are being run from the SSN directory.
 $appStart
 CMD
     my $result = runShellCommand("$cmd");
-    print "Starting $title $outputDirName\n";
+    print "Starting $title AS-$ascore\n";
     if (not $dryRun) {
         my @lines = split(m/[\n\r]+/i, $result);
         my $foundStatsLine = 0;
@@ -214,10 +271,14 @@ CMD
                 last;
             }
         }
+        my $unirefCol = $uniref ? "uniref," : "";
+        my $unirefVal = $uniref ? "$uniref," : "";
         my $ssnOutName = "${title}_full_ssn.xgmml";
-        my $sql = "INSERT OR REPLACE INTO as_jobs (as_id, cluster_id, cluster_name, ascore, uniref, job_id, started, dir_path, ssn_name) VALUES ('$asid', '$clusterId', '$clusterName', $ascore, $uniref, $jobNum, 1, '$outputPath', '$ssnOutName')";
+        my $sql = "INSERT OR REPLACE INTO as_jobs (as_id, cluster_id, cluster_name, ascore, $unirefCol job_id, started, dir_path, ssn_name, image_only) VALUES ('$asid', '$clusterId', '$clusterName', $ascore, $unirefVal $jobNum, 1, '$outputPath', '$ssnOutName', $imageOnly)";
         do_sql($sql, $dbh, $dryRun);
     }
+
+    return 1;
 }
 
 
@@ -230,7 +291,7 @@ sub makeTitle {
 
 
 sub createSchema {
-    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
+    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, image_only INT, PRIMARY KEY(as_id))";
     do_sql($sql, $dbh, $dryRun);
     $sql = "CREATE TABLE IF NOT EXISTS ca_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
     do_sql($sql, $dbh, $dryRun);

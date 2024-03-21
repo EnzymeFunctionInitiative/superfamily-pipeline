@@ -12,7 +12,7 @@ sub new {
     my $self = {};
     bless $self, $class;
 
-    $self->{cp_cmd} = "cp -u";
+    $self->{cp_cmd} = "cp -fa";
     $self->{app_dir} = $args{app_dir} or die "Need app_dir";
     $self->{include_parent} = $args{include_parent} // 0;
 
@@ -26,13 +26,14 @@ sub getNonDicedCollectCommands {
     my $clusterId = shift;
     my $data = shift;
     my $targetDir = shift;
+    my $isColorSsnOnly = shift;
 
     $self->{_commands} = [];
     $self->{_diced_clusters} = [];
 
     my $ascore = "";
     my $sourceNum;
-    $self->processJob($clusterId, $data, $ascore, $targetDir, 0, $sourceNum, 0);
+    $self->processJob($clusterId, $data, $ascore, $targetDir, 0, $sourceNum, 0, $isColorSsnOnly);
     
     return $self->{_commands};
 }
@@ -44,13 +45,14 @@ sub getNonDicedSplitCommands {
     my $clusterId = shift;
     my $data = shift;
     my $targetDir = shift;
+    my $isColorSsnOnly = shift;
 
     $self->{_split} = [];
     $self->{_diced_clusters} = [];
 
     my $ascore = "";
     my $sourceNum;
-    $self->processJob($clusterId, $data, $ascore, $targetDir, 0, $sourceNum, 1);
+    $self->processJob($clusterId, $data, $ascore, $targetDir, 0, $sourceNum, 1, $isColorSsnOnly);
     
     return $self->{_split};
 }
@@ -62,13 +64,14 @@ sub getDicedCollectCommands {
     my $clusterId = shift;
     my $data = shift;
     my $targetDir = shift;
+    my $isColorSsnOnly = shift;
 
     $self->{_commands} = [];
     $self->{_diced_clusters} = [];
 
     my $ascore = $data->{ascore} // die "Need ascore";
     my $sourceNum = "";
-    $self->processJob($clusterId, $data, $ascore, $targetDir, 1, $sourceNum, 0);
+    $self->processJob($clusterId, $data, $ascore, $targetDir, 1, $sourceNum, 0, $isColorSsnOnly);
     
     return $self->{_commands};
 }
@@ -80,13 +83,14 @@ sub getDicedSplitCommands {
     my $clusterId = shift;
     my $data = shift;
     my $targetDir = shift;
+    my $isColorSsnOnly = shift;
 
     $self->{_split} = [];
     $self->{_diced_clusters} = [];
 
     my $ascore = $data->{ascore} // die "Need ascore";
     my $sourceNum = "";
-    $self->processJob($clusterId, $data, $ascore, $targetDir, 1, $sourceNum, 1);
+    $self->processJob($clusterId, $data, $ascore, $targetDir, 1, $sourceNum, 1, $isColorSsnOnly);
     
     return $self->{_split};
 }
@@ -98,9 +102,10 @@ sub processJob {
     my $jobData = shift;
     my $ascore = shift;
     my $targetDir = shift;
-    my $diceJobs = shift // 0;
-    my $sourceNum = shift // "";
-    my $ssnOnly = shift // 0;
+    my $diceJobs = shift;
+    my $sourceNum = shift;
+    my $ssnOnly = shift;
+    my $isColorSsnOnly = shift;
 
     my $cpCmd = $self->{cp_cmd};
     my $appDir = $self->{app_dir};
@@ -118,7 +123,7 @@ sub processJob {
     #my $subCluster = (defined $sourceNum and length $sourceNum) ? $sourceNum : $clusterNum;
     #my $subClusterRemap = "$subCluster:$clusterNum";
 
-    my $subCluster = 1;
+    my $subCluster = $isColorSsnOnly ? "All" : 1;
     my $subClusterRemap = "1:1";
 
     if (not $ssnOnly) {
@@ -127,14 +132,14 @@ sub processJob {
         $self->writeJobLine("");
         $self->writeJobLine("");
         $self->writeJobLine("#################################################################################");
-        $self->writeJobLine("# PROCESSING $cluster");
+        $self->writeJobLine("# PROCESSING $cluster v2");
 
         # Collect HMMs and length histograms.
         #TODO
         if (not $diceJobs) {
             $self->writeJobLine("mkdir -p $targetDir");
-            $self->copyHmmFiles($inputCaDir, $targetDir, $subCluster, $subClusterRemap);
-    
+            $self->copyHmmFiles($inputCaDir, $targetDir, $subCluster, $subClusterRemap) if not $isColorSsnOnly;
+   
             if (-d $inputCaDir) {
                 $self->copyParentIdFiles($inputCaDir, $targetDir, $subCluster);
             } elsif (not -d $inputCaDir) {
@@ -160,7 +165,7 @@ sub processJob {
         $self->writeJobLine("$appDir/remove_xgmml_singletons.pl --input $inputSsn --output $inputSsn.no_singletons");
     }
 
-    if (not $ssnOnly) {
+    if (not $ssnOnly and not $isColorSsnOnly) {
         # Copy the convergence ratio file for the parent job.
         if ($inputCrDir) {
             my $targetCR = "$targetDir/conv_ratio.txt";
@@ -240,6 +245,7 @@ sub copyHmmFiles {
 
     my $hDir = "$inputCaDir/cluster-data/hmm/full/normal";
     my @hmmFiles = glob("$hDir/hmm/cluster_*.hmm");
+            $self->writeJobLine("#HDIR $hDir");
     if (-d $hDir) {
         $self->writeJobLine($self->getCopyHistoFiles($hDir, $targetDir, $subCluster));
         $self->writeJobLine($self->getCopyHmmFiles($hDir, $targetDir, $subCluster));
@@ -313,6 +319,8 @@ sub getCopyConsResFiles {
     if ($isDiced and $subClusterRemapFile) {
         $subCArg = "--sub-cluster-map-file $subClusterRemapFile";
     }
+
+    return () if not -f $masterCrFile;
 
     my @lines;
     open my $fh, "<", $masterCrFile or die "Unable to get copy cons res files from $masterCrFile";

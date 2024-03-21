@@ -110,7 +110,7 @@ sub processHmm {
     my $cluster = shift;
     my $ascore = shift || "";
 
-    print "Processing $hmmFile\n";
+    print "Processing $hmmFile $cluster $ascore\n";
 
     $ascore = "-AS$ascore" if $ascore;
 

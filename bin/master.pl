@@ -24,20 +24,21 @@ use IdListParser;
 use File::Path qw(make_path);
 
 
-my ($projectDir, $jobMasterDir, $loadDir, $masterMetaFile, $subgroupInfoFile, $action, $unirefVersion, $queue, $dryRun, $showHelp, $lockFileName, $efiConfigFile);
+my ($projectDir, $jobMasterDir, $loadDir, $masterMetaFile, $action, $unirefVersion, $queue, $dryRun, $showHelp, $lockFileName, $efiConfigFile, $supportFiles, $ignoreError);
 my $result = GetOptions(
     "project-dir=s"         => \$projectDir,
     "master-dir=s"          => \$jobMasterDir,
     "load-dir=s"            => \$loadDir,   # Where the output files go after being collected
     "master-file=s"         => \$masterMetaFile,
-    "subgroup-info-file=s"  => \$subgroupInfoFile,
     "action=s"              => \$action,
     "uniref-version=i"      => \$unirefVersion,
     "queue=s"               => \$queue,
     "dry-run"               => \$dryRun,
     "help"                  => \$showHelp,
+    "ignore-finalize-errors"=> \$ignoreError,
     "lock-file-name=s"      => \$lockFileName,
     "efi-config-file=s"     => \$efiConfigFile,
+    "support-files=s"       => \$supportFiles,
 );
 
 
@@ -81,7 +82,8 @@ open my $logFh, ">>", $logFile;
 my $logger = new MasterLogger($logFh);
 
 
-my $masterData = parse_master_file($masterMetaFile, $subgroupInfoFile // "");
+my $subgroupInfoFile = ($supportFiles and -d $supportFiles and -f "$supportFiles/subgroup_info.txt") ? "$supportFiles/subgroup_info.txt" : "";
+my $masterData = parse_master_file($masterMetaFile, $subgroupInfoFile);
 my $actions = new MasterActions(dry_run => $dryRun, get_dbh => getDbhFn(), app_dir => $appDir, efi_tools_home => $ENV{EFI_TOOLS_HOME}, log_fh => $logger, queue => $queue, efi_config_file => $efiConfigFile);
 
 print_log("=====================> Starting master.pl log " . scalar(localtime) . " <=====================");
@@ -92,7 +94,7 @@ if ($action eq "start-ascores") {
     initDatabase($dbFile, 1);
 
     my ($generateDir);
-    GetOptions("--generate-dir=s" => \$generateDir);
+    GetOptions("generate-dir=s" => \$generateDir);
     print "Needs --generate-dir\n" and do_exit(1) if not $generateDir or not -d $generateDir;
 
     my $app = "$appDir/auto-ssn/start_ascore_jobs.pl";
@@ -115,7 +117,7 @@ if ($action eq "start-ascores") {
     initDatabase($dbFile, 1);
 
     my ($checkType, $minClusterSize, $maxCrJobs);
-    GetOptions("--check-type=s", \$checkType, "--min-cluster-size=i" => \$minClusterSize, "max-cr-jobs=i" => \$maxCrJobs);
+    GetOptions("check-type=s", \$checkType, "min-cluster-size=i" => \$minClusterSize, "max-cr-jobs=i" => \$maxCrJobs);
     print "Need --check-type = ca|cr|ca+cr\n" and do_exit(1) if not $checkType;
 
     my $app = "$appDir/auto-ssn/check_completion.pl";
@@ -155,7 +157,7 @@ if ($action eq "start-ascores") {
 ##########################################################################################
 #} elsif ($action eq "make-ssn-list") {
 #    my ($outputCollectDir, $outputFile);
-#    GetOptions("--output-collect-dir=s" => \$outputCollectDir, "--ssn-list=s" => \$outputFile);
+#    GetOptions("output-collect-dir=s" => \$outputCollectDir, "ssn-list=s" => \$outputFile);
 #    #print "Needs --output-collect-dir\n" and do_exit(1) if not $outputCollectDir or not -d $outputCollectDir;
 #    print "Needs --ssn-list\n" and do_exit(1) if not $outputFile;
 #
@@ -170,7 +172,7 @@ if ($action eq "start-ascores") {
 #########################################################################################
 } elsif ($action eq "make-collect") {
     my ($splitSsns, $minClusterSize);
-    GetOptions("--split-ssns" => \$splitSsns, "min-cluster-size=i" => \$minClusterSize);
+    GetOptions("split-ssns" => \$splitSsns, "min-cluster-size=i" => \$minClusterSize);
 
     $minClusterSize = 3 if not $minClusterSize;
     my $flag = $splitSsns ? DataCollection::SPLIT : DataCollection::COLLECT;
@@ -181,7 +183,7 @@ if ($action eq "start-ascores") {
 #########################################################################################
 } elsif ($action eq "check-collect") {
     my ($splitSsns);
-    GetOptions("--split-ssns" => \$splitSsns);
+    GetOptions("split-ssns" => \$splitSsns);
 
     my $flag = $splitSsns ? DataCollection::SPLIT : DataCollection::COLLECT;
     my $messages = $actions->updateCollectStatus($flag);
@@ -196,6 +198,8 @@ if ($action eq "start-ascores") {
     my $gndScriptDir = "$buildScriptDir/gnd_build";
 
     my ($isCollectFinished, $step, $message) = checkCollectStatus();
+    my $tm = scalar localtime;
+    print "$tm collect step $step is not finished: $message\n" if not $isCollectFinished;
     my $isBuildStarted = -f "$buildScriptDir/build.started" || 0;
     my $isBuildFinished = -f "$buildScriptDir/build.finished" || 0;
     my $isGndStarted = -f "$gndScriptDir/gnd.started" || 0;
@@ -207,9 +211,11 @@ if ($action eq "start-ascores") {
 
     my $buildDb = "$loadDir/data.sqlite";
 
+    #TODO: create HMMs for very large clusters (retrieve FASTA, create HMM)
+
     if ($isCollectFinished and not $isBuildStarted) {
-        my ($efiDb, $getMetaOnly, $supportFiles);
-        GetOptions("--get-metadata-only" => \$getMetaOnly, "--efi-db=s" => \$efiDb, "--support-files=s" => \$supportFiles);
+        my ($efiDb, $getMetaOnly);
+        GetOptions("get-metadata-only" => \$getMetaOnly, "efi-db=s" => \$efiDb);
         print "Needs --efi-db\n" and do_exit(1) if (not $isSizeOnly and not $efiDb);
         print "Needs env EFI_TOOLS_HOME\n" and do_exit(1) if not $ENV{EFI_TOOLS_HOME};
 
@@ -218,39 +224,40 @@ if ($action eq "start-ascores") {
         my $masterScript = "$buildScriptDir/master_build.sh";
 
         my @messages = $actions->createFinalDb($masterData, $buildDb, $buildScriptDir, $efiDb, $loadDir, $efiMetaDir, $supportFiles, $getMetaOnly, $isSizeOnly, $masterScript);
-        if (scalar @messages) {
-            print("There were errors creating the final job:\n\t" . join("\n\t", @messages) . "\n") and do_exit(1);
-        } else {
+        if (@messages) {
+            print("There were errors creating the final job:\n\t" . join("\n\t", @messages) . "\n");
+            do_exit(1) unless $ignoreError;
+        }
+        if (not @messages or $ignoreError) {
             my ($result, $err) = capture { system("/usr/bin/sbatch", $masterScript); };
             print "There was an error submitting master script $masterScript: $err\n" and do_exit(1) if $err;
         }
-
+    
         my $hmmScriptDir = "$buildScriptDir/hmm_build";
         make_path($hmmScriptDir) if not -d $hmmScriptDir;
         my $hmmScript = "$hmmScriptDir/create_hmm_databases.sh";
-
+    
         $actions->createHmmDatabaseScript($masterData, $hmmScriptDir, $hmmScript, $loadDir);
-
+    
         my ($result, $err) = capture { system("/usr/bin/sbatch", $hmmScript); };
         print "There was an error submitting HMM $hmmScript: $err\n" and do_exit(1) if $err;
-
+    
     } elsif ($isBuildStarted and $isBuildFinished and not $isGndStarted) {
         print "Starting GND\n";
         my ($efiDbModule, $createNewGndDb);
-        GetOptions("--efi-db=s" => \$efiDbModule, "--create-new-gnd-db" => \$createNewGndDb);
-
+        GetOptions("efi-db=s" => \$efiDbModule, "create-new-gnd-db" => \$createNewGndDb);
+    
         make_path($gndScriptDir) if not -d $gndScriptDir;
         my $gndScript = "$gndScriptDir/create_gnd_database.sh";
-
+    
         $actions->createGndDb($efiDbModule, $buildDb, $loadDir, $gndScriptDir, $gndScript, $unirefVersion, $createNewGndDb);
-
+    
         if ($gndScript) {
             my ($result, $err) = capture { system("/usr/bin/sbatch", $gndScript); };
             print "There was an error submitting GND $gndScript: $err\n" and do_exit(1) if $err;
         } else {
             print "Failed to create GND script\n";
         }
-
     }
 
 
@@ -277,10 +284,10 @@ sub checkCollectStatus {
     my $dbhFn = getDbhFn();
     my $dbh = &$dbhFn;
 
-    my $sqlFn = sub { my $table = shift; my $finCol = shift || "finished"; return "SELECT COUNT(CASE WHEN $finCol = 1 THEN 1 END) AS num_finished, COUNT(CASE WHEN started = 1 THEN 1 END) AS num_started FROM $table"; };
+    my $sqlFn = sub { my $table = shift; my $finCol = shift || "finished"; my $extra = shift || ""; my $sql = "SELECT COUNT(CASE WHEN $finCol = 1 THEN 1 END) AS num_finished, COUNT(CASE WHEN started = 1 THEN 1 END) AS num_started FROM $table $extra"; print_log($sql); return $sql; };
     my ($sql, $row, $sth);
 
-    $sql = &$sqlFn("as_jobs");
+    $sql = &$sqlFn("as_jobs", undef, "WHERE image_only = 0");
     $sth = $dbh->prepare($sql);
     $sth->execute();
     $row = $sth->fetchrow_hashref();
@@ -310,7 +317,7 @@ sub checkCollectStatus {
 
 sub createSchema {
     my $dbh = shift;
-    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, PRIMARY KEY(as_id))";
+    my $sql = "CREATE TABLE IF NOT EXISTS as_jobs (as_id TEXT, cluster_id TEXT, cluster_name TEXT, ascore INT, uniref INT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, image_only INT, PRIMARY KEY(as_id))";
     do_sql($sql, $dbh, $dryRun);
     $sql = "CREATE TABLE IF NOT EXISTS ca_jobs (as_id TEXT, started INT, finished INT, job_id INT, dir_path TEXT, ssn_name TEXT, max_cluster_size INT, PRIMARY KEY(as_id))";
     do_sql($sql, $dbh, $dryRun);
@@ -325,10 +332,8 @@ sub getDbhFn {
     return sub {
         die "Missing db file in master dir\n" if not -f $dbFile;
         my $dbh;
-        if (not $dryRun) {
-            $dbh = initDatabase($dbFile);
-            die "No database connection\n" if not $dbh;
-        }
+        $dbh = initDatabase($dbFile);
+        die "No database connection\n" if not $dbh;
         return $dbh;
     };
 }
@@ -338,7 +343,7 @@ sub initDatabase {
     my $dbFile = shift;
     my $initOnly = shift // 0;
     my $dbh = DBI->connect("dbi:SQLite:dbname=$dbFile", "", "");
-    createSchema($dbh);
+    createSchema($dbh) if not $dryRun;
     if ($initOnly) {
         $dbh = undef;
     } else {

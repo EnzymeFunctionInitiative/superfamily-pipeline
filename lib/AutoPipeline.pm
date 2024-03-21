@@ -187,10 +187,10 @@ sub get_jobs_from_db {
     my $dryRun = shift || 0;
     my $logFh = shift || 0;
 
-    if ($dryRun) {
-        print "$sql\n";
-        return ();
-    }
+    #if ($dryRun) {
+    #    print "$sql\n";
+    #    return ();
+    #}
 
     $logFh->print("$sql\n") if $logFh;
     my $sth = $dbh->prepare($sql);

@@ -43,13 +43,13 @@ my $insCount = 0;
 my $commitSize = 50000;
 
 my $dbh = DBI->connect("dbi:SQLite:dbname=$dbFile", "", "", {RaiseError => 1});
-print STDERR "DONE\n";
+$dbh->{AutoCommit} = 0;
 
 my $tableName = createSchema($seqVersion);
 my $data = getClusterMapping($idMapping);
 my $unirefMap = getUniRefMap($unirefMapFile) if $unirefMapFile and $seqVersion ne "uniprot";
 
-$dbh->begin_work if not $debug;
+#$dbh->begin_work if not $debug;
 
 if (not $updateUniRefOnly) {
     my $clusterIndexes = getClusterIndexes($seqVersion);
@@ -312,47 +312,6 @@ sub getClusterMapping {
     map { &$processFileFn($_) } @$mapFiles;
 
     return $data;
-
-#    my @entries = glob("$dir/*");
-#
-#    my ($upData, $urData) = ({}, {});
-#
-#    foreach my $entry (@entries) {
-#        (my $dirName = $entry) =~ s%^.*/(cluster[^/]+)$%$1%;
-#        next if not -d $entry or $dirName !~ m/^cluster/;
-#
-#        my $file = "$entry/uniprot.txt";
-#        my $lc = getLineCount($file);
-#        $upData->{$dirName} = {size => $lc, ids => [], file => $file};
-#
-#        $file = "$entry/uniref90.txt";
-#        $lc = getLineCount($file);
-#        $urData->{$dirName} = {size => $lc, ids => [], file => $file};
-#    }
-#
-#    return ($upData, $urData);
-}
-
-
-sub getLineCount {
-    my $file = shift;
-    my $lc = `wc -l $file`;
-    $lc =~ s/^(\d+)\D.*$/$1/gs;
-    return $lc;
-}
-
-
-sub getIds {
-    my $file = shift;
-    open my $fh, "<", $file;
-    my @ids;
-    while (<$fh>) {
-        chomp;
-        next if m/^\s*$/ or m/^#/;
-        push @ids, $_;
-    }
-    close $fh;
-    return \@ids;
 }
 
 
@@ -382,7 +341,7 @@ sub doInsert {
     if ($insCount++ > $commitSize) {
         print "Database commit\n";
         $dbh->commit if not $debug;
-        $dbh->begin_work if not $debug;
+        #$dbh->begin_work if not $debug;
         $insCount = 0;
     }
     $dbh->do($sql) if not $debug;

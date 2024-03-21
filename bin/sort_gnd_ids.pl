@@ -4,6 +4,7 @@ use strict;
 use warnings;
 
 use Getopt::Long;
+use Data::Dumper;
 
 
 
@@ -44,6 +45,7 @@ sub processFile {
     my $rowIndexRef = shift;
 
     my $ids = readFile($file);
+
     sortClusters($ids);
 
     my $clusterLengthSortFn = sub {
@@ -90,9 +92,11 @@ sub writeOutput {
     
     foreach my $id (@$sorted) {
         my @cs = @{ $ids->{$id} };
-        my @clusterInfo = reverse split(m/,/, $cs[0]);
-        print $out join("\t", @clusterInfo, $id), "\n";
-        foreach my $cluster (@{ $ids->{$id} }) {
+        #my @clusterInfo = reverse split(m/,/, $cs[0]);
+        #print $out join("\t", @clusterInfo, $id), "\n";
+        foreach my $cluster (@cs) {
+            my @clusterInfo = reverse split(m/,/, $cluster);
+            print $out join("\t", @clusterInfo, $id), "\n";
             $indexes{$cluster}->{start} = $rowNum if not exists $indexes{$cluster};
             $indexes{$cluster}->{end} = $rowNum;
         }
@@ -112,14 +116,13 @@ sub readFile {
 
     open my $fh, "<", $file;
     print "Processing $file\n";
-    while (<$fh>) {
-        chomp;
-        next if m/^\s*$/ or m/^#/;
-        my @p = split(m/\t/);
+    while (my $line = <$fh>) {
+        chomp $line;
+        next if $line =~ m/^\s*$/ or $line =~ m/^#/;
+        my @p = split(m/\t/, $line);
         my $cluster = $p[0];
         next if $cluster !~ m/^cluster/i;
         my $id = $p[$#p];
-        #$cluster = "$cluster,$p[1]" if $#p > 1; # add ascore
         $cluster = "$p[1],$cluster" if $#p > 1; # add ascore
         push @{ $ids{$id} }, $cluster;
     }

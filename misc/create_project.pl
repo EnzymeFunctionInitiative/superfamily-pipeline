@@ -76,7 +76,11 @@ push @actions, sub { copy($cytoConfig, "$projectDir/cytoscape_config.sh"); };
 push @actions, sub { make_path("$dataDir/cytoscape/scripts"); make_path("$dataDir/cytoscape/temp"); };
 push @actions, sub { copy("$miscHome/run_cytoscape.sh", $projectDir); };
 push @actions, sub { copy("$miscHome/run_finalize.sh", $projectDir); };
-push @actions, sub { make_path($supportDir); copy("$miscHome/sample_subgroup_info.txt", $supportDir); copy("$miscHome/tigr_names.txt", $supportDir); copy("$miscHome/enzclass.txt", $supportDir); };
+push @actions, sub { make_path($supportDir); };
+push @actions, sub { copy("$miscHome/sample_subgroup_info.txt", "$supportDir/subgroup_info.txt"); };
+push @actions, sub { copy("$miscHome/tigr_names.txt", $supportDir); };
+push @actions, sub { copy("$miscHome/enzclass.txt", $supportDir); };
+push @actions, sub { copy("$miscHome/annotations.txt", $supportDir); };
 
 
 

@@ -68,6 +68,7 @@ sub validateInputs {
         "load-conv-ratio-script=s",
         "load-cons-res-script=s",
         "load-anno-file=s",
+        "load-alphafold-file=s",
         "append-to-db", # don't recreate the table if it already exists
         "dryrun|dry-run",
         "uniref-version=i",
@@ -103,6 +104,7 @@ sub validateInputs {
     $parms{load_conv_ratio_script} = $opts{"load-conv-ratio-script"} // "";
     $parms{load_cons_res_script} = $opts{"load-cons-res-script"} // "";
     $parms{load_anno_file} = $opts{"load-anno-file"} // "";
+    $parms{load_alphafold_file} = $opts{"load-alphafold-file"} // "";
     $parms{append_to_db} = $opts{"append-to-db"} // "";
     $parms{dryrun} = $opts{"dryrun"} // "";
     $parms{uniref_version} = $opts{"uniref-version"} // 90;
@@ -171,6 +173,32 @@ sub annoToSqlite {
         my $doiStr = join("`", grep { m/^\S/ } map { s/^\s*(.*?)\s*$/$1/; $_ } @doi);
         my $sql = "INSERT OR IGNORE INTO annotations (uniprot_id, doi) VALUES(\"$id\", \"$doiStr\")";
         $self->batchInsert($sql);
+    }
+
+    close $fh;
+}
+
+
+# ALPHAFOLD ########################################################################################
+
+sub alphafoldToSqlite {
+    my $self = shift;
+    my $file = shift;
+
+    $self->createTable("alphafolds");
+
+    open my $fh, "<", $file;
+
+    my $sql = "INSERT INTO alphafolds (uniprot_id, alphafold_id) VALUES(?, ?)";
+    my $sth = $self->{dbh}->prepare($sql);
+
+    while (my $line = <$fh>) {
+        chomp $line;
+        next if $line =~ m/^#/;
+        my ($id, $af) = split(m/\t/, $line);
+        $id =~ s/^\s*(.*?)\s*$/$1/;
+        next if $id !~ m/^[A-Z0-9]{6,10}$/i;
+        $self->batchExec($sth, $id, $af);
     }
 
     close $fh;
@@ -272,7 +300,6 @@ sub idListsToSqlite2 {
     my $self = shift;
     my $mainDataDir = shift;
     my $isDiced = shift || 0;
-    my $jobIdListFile = shift || "";
 
     my $dicedPrefix = $isDiced ? "diced_" : "";
     my $tableName = "${dicedPrefix}id_mapping";
@@ -335,6 +362,107 @@ sub idListsToSqlite2 {
     } else {
         &$processAllFn($mainDataDir);
     }
+}
+
+
+sub createClusterIndexTable {
+    my $self = shift;
+
+    my $sql = "SELECT * FROM diced_id_mapping ORDER BY uniprot_id, ascore";
+    my $sth = $self->{dbh}->prepare($sql);
+    $sth->execute;
+
+    my %ids;
+    while (my $row = $sth->fetchrow_hashref) {
+        push @{ $ids{$row->{uniprot_id}} }, [$row->{cluster_id}, $row->{ascore}];
+    }
+
+    my %dataNext;
+    my %dataPrev;
+    foreach my $id (keys %ids) {
+        my @clusters = @{ $ids{$id} };
+        for (my $i = 0; $i <= $#clusters; $i++) {
+            my $cid = $clusters[$i]->[0] . "-" . $clusters[$i]->[1];
+            if ($i < $#clusters) {
+                my $nextCid = $clusters[$i + 1]->[0] . "-" . $clusters[$i + 1]->[1];
+                $dataNext{$cid}->{$nextCid} = [$clusters[$i]->[0], $clusters[$i]->[1], $clusters[$i + 1]->[0], $clusters[$i + 1]->[1]];
+            }
+            if ($i > 0) {
+                my $prevCid = $clusters[$i - 1]->[0] . "-" . $clusters[$i - 1]->[1];
+                $dataPrev{$cid}->{$prevCid} = [$clusters[$i]->[0], $clusters[$i]->[1], $clusters[$i - 1]->[0], $clusters[$i - 1]->[1]];
+            }
+            #my $cid1 = $clusters[$i]->[0] . "-" . $clusters[$i]->[1];
+            #my $cid2 = $clusters[$i + 1]->[0] . "-" . $clusters[$i + 1]->[1];
+            #$data{$cid1}->{$cid2} = [$clusters[$i]->[0], $clusters[$i]->[1], $clusters[$i + 1]->[0], $clusters[$i + 1]->[1]];
+        }
+    }
+
+    my $clusterSort = sub {
+        my @ca = split(m/\-/, $a);
+        my @cb = split(m/\-/, $b);
+
+        my $upper = $#ca > $#cb ? $#cb : $#ca;
+
+        for (my $i = 1; $i <= $upper; $i++) {
+            my $res = $ca[$i] <=> $cb[$i];
+            return $res if $res;
+        }
+
+        return $#cb > $#ca ? -1 : 0;
+    };
+
+    my $processData = sub {
+        my $data = shift;
+        my $table = shift;
+
+        my @data;
+        foreach my $cid (sort $clusterSort keys %$data) {
+            foreach my $cid2 (sort $clusterSort keys %{ $data->{$cid} }) {
+                push @data, $data->{$cid}->{$cid2};
+            }
+        }
+    
+        $self->createTable($table);
+    
+        $sql = "INSERT INTO $table (cluster_id, ascore, cluster_id2, ascore2) VALUES (?, ?, ?, ?)";
+        $sth = $self->{dbh}->prepare($sql);
+    
+        foreach my $row (@data) {
+            $self->batchExec($sth, @$row);
+        }
+    };
+
+    &$processData(\%dataNext, "diced_cluster_index_next");
+    &$processData(\%dataPrev, "diced_cluster_index_prev");
+
+    #@data = sort {
+    #                my @ca = split(m/\-/, $a->[0]);
+    #                my @cb = split(m/\-/, $b->[0]);
+
+    #                my $upper = $#ca > $#cb ? $#cb : $#ca;
+
+    #                for (my $i = 1; $i <= $upper; $i++) {
+    #                    my $res = $ca[$i] <=> $cb[$i];
+    #                    return $res if $res;
+    #                }
+
+    #                return -1 if $#cb > $#ca;
+
+    #                my $res = $a->[1] <=> $b->[1];
+    #                return $res if $res;
+
+    #                @ca = split(m/\-/, $a->[2]);
+    #                @cb = split(m/\-/, $b->[2]);
+
+    #                for (my $i = 1; $i <= $#ca; $i++) {
+    #                    my $res = $ca[$i] <=> $cb[$i];
+    #                    return $res if $res;
+    #                }
+
+    #                return 0;
+    #             } @data;
+
+    #print Dumper(\@data);
 }
 
 
@@ -463,7 +591,7 @@ sub getIdLists {
     my $dir = shift;
 
     my $file = glob("$dir/*uniprot.txt");
-    
+
     my @ids = read_file($file);
     map { chomp } @ids;
 
@@ -720,12 +848,12 @@ sub convRatioToSqlite2 {
             (my $clusterId = $dir) =~ s%^.*(cluster[\-\da-z]*[\-\d]+).*?$%$1%;
             my $crFile = "$dir/conv_ratio.txt";
             next if not -f $crFile;
-    
+
             open my $cfh, "<", $crFile;
             my $header = <$cfh>;
             my $dataLine = <$cfh>;
             close $cfh;
-    
+
             my ($cnum, @data) = split(m/\t/, $dataLine);
             my $sql = "INSERT INTO $tableName (cluster_id, $ascoreCol conv_ratio, num_ids, num_blast, node_conv_ratio, num_nodes, num_edges) VALUES (?, $ascorePH ?, ?, ?, ?, ?, ?)";
             my $sth = $self->{dbh}->prepare($sql);
@@ -904,7 +1032,7 @@ sub consResToSqlite2 {
 
         $self->batchExec($sth, @row);
     }
-    
+
     $self->finish();
 }
 
@@ -1013,7 +1141,7 @@ sub computeDicedClusterSizes {
     my %ascore;
     my $sth = $self->{dbh}->prepare($idSql);
     warn "Unable to prepare $idSql; ignoring" and return if not $sth;
-    
+
     my %primaryAscore;
     $sth->execute;
     while (my $row = $sth->fetchrow_hashref) {
@@ -1205,7 +1333,7 @@ sub networkUiJsonToSqlite {
 
     $self->createTable("network");
     $self->createTable("region");
-    
+
     $self->insertNetworkData($json->{networks});
 }
 
@@ -1214,17 +1342,12 @@ sub insertNetworkData {
     my $self = shift;
     my $data = shift;
 
+    my $sql = "INSERT INTO network (cluster_id, title, name, desc, parent_id, subgroup_id) VALUES (?, ?, ?, ?, ?, ?)";
+    my $sth = $self->{dbh}->prepare($sql);
+
     foreach my $clusterId (sort keys %$data) {
         my $net = $data->{$clusterId};
-
-        my $valStr = join(", ", getStrVal($clusterId), getStrVal($net->{title}), getStrVal($net->{name}), getStrVal($net->{desc}));
-        my $parentCol = "";
-        if ($net->{parent}) {
-            $parentCol = ", parent_id";
-            $valStr .= ", " . getStrVal($net->{parent});
-        }
-        my $sql = "INSERT INTO network (cluster_id, title, name, desc $parentCol) VALUES ($valStr)";
-        $self->batchInsert($sql);
+        $self->batchExec($sth, $clusterId, $net->{title}, $net->{name}, $net->{desc}, $net->{parent}, $net->{subgroup_id});
 
         if ($net->{regions}) {
             $self->insertRegionData($clusterId, $net->{regions});
@@ -1244,25 +1367,15 @@ sub netinfoToSqlite {
     my %data;
 
     open my $fh, "<", $file or die "Unable to read netinfo file $file: $!";
-    while (<$fh>) {
-        chomp;
-        my ($clusterId, $name, $title, $desc, $parentId) = split(m/\t/, $_, -1);
-        $data{$clusterId} = {title => $title, name => $name, desc => $desc};
-        $data{$clusterId}->{parent} = $parentId if $parentId;
+    while (my $line = <$fh>) {
+        chomp $line;
+        my ($clusterId, $name, $title, $desc, $parentId, $subgroupId) = split(m/\t/, $line, -1);
+        $data{$clusterId} = {title => $title, name => $name, desc => $desc, subgroup_id => $subgroupId // "", parent => $parentId // ""};
     }
     close $fh;
 
-    foreach my $clusterId (keys %data) {
-        my @p = split(m/-/, $clusterId);
-        next if scalar @p < 3 or $data{$clusterId}->{parent};
-        my $parent = join("-", @p[0..($#p-1)]);
-        if ($data{$parent}) {
-            $data{$clusterId}->{parent} = $parent;
-        }
-    }
-
     $self->insertNetworkData(\%data);
-    
+
     $self->finish;
 }
 
@@ -1366,10 +1479,19 @@ sub unirefMappingToSqlite {
 
     $self->createTable("uniref_map");
 
-    print <<SQL;
-.separator "\\t"
-.import "$file" uniref_map
-SQL
+    my $sql = "INSERT INTO uniref_map (uniprot_id, uniref90_id, uniref50_id) VALUES (?, ?, ?)";
+    my $sth = $self->{dbh}->prepare($sql);
+
+    open my $fh, "<", $file or die "Unable to read uniref-map file $file: $!";
+    while (<$fh>) {
+        chomp;
+        my ($up, $ur90, $ur50) = split(m/\t/);
+        if ($up and $ur90 and $ur50) {
+            $self->batchExec($sth, $up, $ur90, $ur50);
+        }
+    }
+
+    close $fh;
 }
 
 
@@ -1476,7 +1598,7 @@ sub createTable {
 
     my $schemas = {
         "size" => ["cluster_id TEXT", "uniprot INT DEFAULT 0", "uniref90 INT DEFAULT 0", "uniref50 INT DEFAULT 0"],
-        "network" => ["cluster_id TEXT", "title TEXT", "name TEXT", "desc TEXT", "parent_id TEXT"],
+        "network" => ["cluster_id TEXT", "title TEXT", "name TEXT", "desc TEXT", "parent_id TEXT", "subgroup_id TEXT"],
         "region" => ["cluster_id TEXT", "region_id TEXT", "region_index INT", "name TEXT", "number TEXT", "coords TEXT"],
         "id_mapping" => ["cluster_id TEXT", "uniprot_id TEXT"],
         "id_mapping_uniref50" => ["cluster_id TEXT", "uniref50_id TEXT"],
@@ -1496,7 +1618,8 @@ sub createTable {
         "conv_ratio" => ["cluster_id TEXT", "conv_ratio REAL", "num_ids INT", "num_blast INT", "node_conv_ratio REAL", "num_nodes INT", "num_edges INT"],
         "cons_res" => ["cluster_id TEXT", "residue CHAR(1)", "percent INT", "num_res INT"],
         "annotations" => ["uniprot_id TEXT", "doi TEXT"],
-        
+        "alphafolds" => ["uniprot_id TEXT", "alphafold_id TEXT"],
+
         "diced_size" => ["cluster_id TEXT", "ascore INT", "uniprot INT DEFAULT 0", "uniref90 INT DEFAULT 0", "uniref50 INT DEFAULT 0"],
         "diced_network" => ["cluster_id TEXT", "ascore INT", "parent_id TEXT", "parent_ascore INT"],
         "diced_id_mapping" => ["cluster_id TEXT", "ascore INT", "uniprot_id TEXT"],
@@ -1505,17 +1628,19 @@ sub createTable {
 #        "diced_ssn" => ["cluster_id TEXT", "ascore TEXT"],
         "diced_conv_ratio" => ["cluster_id TEXT", "ascore INT", "conv_ratio REAL", "num_ids INT", "num_blast INT", "node_conv_ratio REAL", "num_nodes INT", "num_edges INT"],
         "diced_cons_res" => ["cluster_id TEXT", "ascore INT", "residue CHAR(1)", "percent INT", "num_res INT"],
+        "diced_cluster_index_next" => ["cluster_id TEXT", "ascore INT", "cluster_id2 TEXT", "ascore2 INT"],
+        "diced_cluster_index_prev" => ["cluster_id TEXT", "ascore INT", "cluster_id2 TEXT", "ascore2 INT"],
     };
 
     my $indexes = {
         "size" => [{name => "size_cluster_id_idx", cols => "cluster_id"}],
-        "network" => [{name => "network_cluster_id_idx", cols => "cluster_id"}],
+        "network" => [{name => "network_cluster_id_idx", cols => "cluster_id"}, {name => "network_subgroup_id", cols => "subgroup_id"}, {name => "network_parent_id", cols => "parent_id"}],
         "id_mapping" => [{name => "id_mapping_uniprot_id_idx", cols => "uniprot_id"}, {name => "id_mapping_cluster_id_idx", cols => "cluster_id"}],
         "id_mapping_uniref50" => [{name => "id_mapping_uniref50_id_idx", cols => "uniref50_id"}, {name => "id_mapping_uniref50_cluster_id_idx", cols => "cluster_id"}],
         "id_mapping_uniref90" => [{name => "id_mapping_uniref90_id_idx", cols => "uniref90_id"}, {name => "id_mapping_uniref90_cluster_id_idx", cols => "cluster_id"}],
         "swissprot" => [{name => "swissprot_uniprot_id_idx", cols => "uniprot_id"}],
         "kegg" => [{name => "kegg_uniprot_id_idx", cols => "uniprot_id"}],
-        "tigr" => [{name => "tigr_uniprot_id_idx", cols => "uniprot_id"}],
+        "tigr" => [{name => "tigr_uniprot_id_idx", cols => "uniprot_id"}, {name => "tigr_tigr_idx", cols => "tigr"}],
         "pdb" => [{name => "pdb_uniprot_id_idx", cols => "uniprot_id"}],
         "taxonomy" => [{name => "taxonomy_tax_uniprot_idx", cols => "uniprot_id"}, {name => "taxonomy_tax_id_idx", cols => "tax_id"}, {name => "taxonomy_domain_idx", cols => "domain"}, {name => "taxonomy_kingdom_idx", cols => "kingdom"}, {name => "taxonomy_phylum_idx", cols => "phylum"}, {name => "taxonomy_class_idx", cols => "class"}, {name => "taxonomy_taxorder_idx", cols => "taxorder"}, {name => "taxonomy_family_idx", cols => "family"}, {name => "taxonomy_genus_idx", cols => "genus"}, {name => "taxonomy_species_idx", cols => "species"}, {name => "taxonomy_uniprot_id_idx", cols => "uniprot_id"}],
         "families" => [{name => "families_cluster_id_idx", cols => "cluster_id"}],
@@ -1524,8 +1649,9 @@ sub createTable {
         "uniref_map" => [{name => "uniref_map_up_idx", cols => "uniprot_id"}, {name => "uniref_map_ur90_idx", cols => "uniref90_id"}, {name => "uniref_map_ur50_idx", cols => "uniref50_id"}],
         "conv_ratio" => [{name => "conv_ratio_cluster_id", cols => "cluster_id"}],
         "cons_res" => [{name => "cons_res_cluster_id", cols => "cluster_id, num_res"}],
-        "annotations" => [{name => "uniprot_id", cols => "uniprot_id"}],
-        
+        "annotations" => [{name => "annotations_uniprot_id_idx", cols => "uniprot_id"}],
+        "alphafolds" => [{name => "alphafolds_uniprot_id_idx", cols => "uniprot_id"}, {name => "alphafolds_alphafold_id_idx", cols => "alphafold_id"}],
+
         "diced_size" => [{name => "diced_size_cluster_id_idx", cols => "cluster_id, ascore"}],
         "diced_network" => [{name => "diced_cluster_id", cols => "cluster_id"}, {name => "diced_parent_id", cols => "parent_id"}, {name => "diced_ascore", cols => "ascore"}],
         "diced_id_mapping" => [{name => "diced_id_mapping_uniprot_id_idx", cols => "uniprot_id"}, {name => "id_mapping_diced_cluster_id_idx", cols => "cluster_id, ascore"}, {name => "id_mapping_diced_uniprot_ascore_idx", cols => "uniprot_id, ascore"}],
@@ -1534,6 +1660,8 @@ sub createTable {
 #        "diced_ssn" => [{name => "diced_ssn_cluster_id", cols => "cluster_id"}],
         "diced_conv_ratio" => [{name => "diced_conv_ratio_cluster_id", cols => "cluster_id, ascore"}],
         "diced_cons_res" => [{name => "diced_cons_res_cluster_id", cols => "cluster_id, ascore, num_res"}],
+        "diced_cluster_index_next" => [{name => "diced_cluster_index_next_idx", cols => "cluster_id, ascore"}],
+        "diced_cluster_index_prev" => [{name => "diced_cluster_index_prev_idx", cols => "cluster_id, ascore"}],
     };
 
     die "Unable to find table schema for $tableId" if not $schemas->{$tableId};

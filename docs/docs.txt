@@ -1,0 +1,20 @@
+
+# NUMBERING
+
+CA numbering is based on UniProt cluster size
+
+Load numbering is based on UniRef90 cluster size, i.e. node cluster number
+
+For example, IP95, cluster 2-4-3 AS-100, cluster 5 uses CA cluster 6, CR cluster 6, because UniRef90 cluster 6 > cluster 5
+
+
+    A0A0Q1FUN1
+        CR:         cluster 6
+        CA:         cluster 6
+        LOAD:       cluster 5
+            IDs:    CA cluster 6
+            SSN:    UP cluster 6, UR cluster 5
+            CONV:   CR cluster 6
+
+
+

@@ -68,7 +68,7 @@ if ($mode =~ m/ca/) {
     my $caJobCount = get_num_running_jobs($dbh, "ca_jobs", $dryRun);
     
     if ($caJobCount >= $maxCaJobs) {
-        print "Too many running CA jobs to start any new ones.\n";
+        print "Too many running CA jobs ($caJobCount / $maxCaJobs) to start any new ones.\n";
     } else {
         foreach my $job (@caJobs) {
             last if $caJobCount ++ > $maxCaJobs;
@@ -86,19 +86,25 @@ if ($mode =~ m/ca/) {
             my $ssnOut = "ssn.xgmml";
         
             my @args = (@defaultArgs);
-            push @args, "--opt-msa-option CR,HMM,WEBLOGO";
-            push @args, "--opt-min-seq-msa $optMinSeqMsa";
-            push @args, "--opt-max-seq-msa 750";
-            push @args, "--opt-aa-list $optAaList";
-            push @args, "--opt-aa-threshold 0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1";
+            my $jidSuffix = "co";
+            my $jidGrepText = "Color SSN job is:";
+            if (not $job->{image_only}) {
+                push @args, "--opt-msa-option CR,HMM,WEBLOGO,HIST";
+                push @args, "--opt-min-seq-msa $optMinSeqMsa";
+                push @args, "--opt-max-seq-msa 750";
+                push @args, "--opt-aa-list $optAaList";
+                push @args, "--opt-aa-threshold 0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1";
+                $jidSuffix = "ca";
+                $jidGrepText = "HMM and stuff job is:";
+            }
             push @args, "--ssn-in $ssnIn";
             push @args, "--ssn-out $ssnOut";
-            my $jid = "${asid}_ca";
+            my $jid = "${asid}_$jidSuffix";
             $jid = "${jobPrefix}_$jid" if $jobPrefix;
             push @args, "--job-id $jid";
         
             print "Running CA for $asid\n";
-            my $jobNum = run_job($asid, \@args, $caStartApp, $outDir, "ca_jobs", "HMM and stuff job is:", $dryRun, $perlEnv);
+            my $jobNum = run_job($asid, \@args, $caStartApp, $outDir, "ca_jobs", $jidGrepText, $dryRun, $perlEnv);
             if ($jobNum) {
                 my $sql = "INSERT INTO ca_jobs (as_id, started, job_id, dir_path, ssn_name) VALUES ('$asid', 1, $jobNum, '$outDir/output', '$ssnOut')";
                 do_sql($sql, $dbh, $dryRun, $logFh);
@@ -166,7 +172,7 @@ sub getNewCAJobs {
 #WHERE A.finished = 1 AND (C.started = 0 OR C.started IS NULL)
 #SQL
     my $sql = <<SQL;
-SELECT A.as_id AS as_id, A.dir_path AS input_ssn_dir, A.ssn_name AS input_ssn_name, A.cluster_id AS cluster_id, A.uniref
+SELECT A.as_id AS as_id, A.dir_path AS input_ssn_dir, A.ssn_name AS input_ssn_name, A.cluster_id AS cluster_id, A.uniref, A.image_only
     FROM as_jobs AS A
     LEFT JOIN ca_jobs AS C ON A.as_id = C.as_id
 WHERE A.finished = 1 AND (C.started = 0 OR C.started IS NULL)
@@ -190,7 +196,7 @@ SELECT C.as_id AS as_id, C.dir_path AS input_ssn_dir, C.ssn_name AS input_ssn_na
     FROM ca_jobs AS C
     LEFT JOIN cr_jobs AS R ON C.as_id = R.as_id
     LEFT JOIN as_jobs AS A ON C.as_id = A.as_id
-WHERE C.finished = 1 AND C.max_cluster_size >= $optMinSeqMsa AND (R.started = 0 OR R.started IS NULL)
+WHERE C.finished = 1 AND C.max_cluster_size >= $optMinSeqMsa AND (R.started = 0 OR R.started IS NULL) AND A.image_only = 0
 SQL
     return get_jobs_from_db($sql, $dbh, $dryRun, $logFh);
 }

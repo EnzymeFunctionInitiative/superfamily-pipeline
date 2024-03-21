@@ -6,6 +6,7 @@ use warnings;
 
 use constant SPLIT => 1;
 use constant COLLECT => 2;
+use constant XIMAGE => 64;
 use constant DEFAULT_NUM_SCRIPTS => 10;
 
 
@@ -52,6 +53,7 @@ sub addCluster {
     my $clusterOutputDirPath = shift;
     my $collectType = shift;
     my $isDiced = shift;
+    my $colorSsnOnly = shift // 0;
 
     #TODO: add this to the script list
     #we want to batch the stuff so that we don't have to split it up later manually when submitting
@@ -61,20 +63,21 @@ sub addCluster {
     # Non-diced cluster
     if (not $isDiced) {
         my $commands = [];
-        if ($collectType == COLLECT) {
-            $commands = $self->{dcc}->getNonDicedCollectCommands($clusterId, $clusterData, $clusterOutputDirPath);
+        if ($collectType & COLLECT) {
+            $commands = $self->{dcc}->getNonDicedCollectCommands($clusterId, $clusterData, $clusterOutputDirPath, $colorSsnOnly);
             push @{ $self->{collect_clusters}->{$asid} }, "######### PROCESSING COLLECT FOR $clusterId", @$commands;
         } else {
-            $commands = $self->{dcc}->getNonDicedSplitCommands($clusterId, $clusterData, $clusterOutputDirPath);
+            $commands = $self->{dcc}->getNonDicedSplitCommands($clusterId, $clusterData, $clusterOutputDirPath, $colorSsnOnly);
             push @{ $self->{split_clusters}->{$asid} }, "######### PROCESSING SPLIT $clusterId", @$commands;
         }
     } else {
+        print "DICED $asid\n";
         my $commands = [];
-        if ($collectType == COLLECT) {
-            $commands = $self->{dcc}->getDicedCollectCommands($clusterId, $clusterData, $clusterOutputDirPath);
+        if ($collectType & COLLECT) {
+            $commands = $self->{dcc}->getDicedCollectCommands($clusterId, $clusterData, $clusterOutputDirPath, $colorSsnOnly);
             push @{ $self->{collect_clusters}->{$asid} }, "######### PROCESSING DICING COLLECT $clusterId AS $clusterData->{ascore}", @$commands;
         } else {
-            $commands = $self->{dcc}->getDicedSplitCommands($clusterId, $clusterData, $clusterOutputDirPath);
+            $commands = $self->{dcc}->getDicedSplitCommands($clusterId, $clusterData, $clusterOutputDirPath, $colorSsnOnly);
             push @{ $self->{split_clusters}->{$asid} }, "######### PROCESSING DICING SPLIT $clusterId AS $clusterData->{ascore}", @$commands;
         }
     }
@@ -87,7 +90,7 @@ sub finish {
     my $jobPrefix = shift // "";
 
     my @batches;
-    if ($collectType == COLLECT) {
+    if ($collectType & COLLECT) {
         @batches = $self->divideIntoBatches3($self->{collect_clusters});
     } else {
         my $ramFn = sub {
@@ -153,7 +156,7 @@ sub finish {
         }
     };
 
-    if ($collectType == COLLECT) {
+    if ($collectType & COLLECT) {
         &$submitFn(\@batches, "collect", "collect_job_id");
     } else {
         &$submitFn(\@batches, "split", "split_job_id");
@@ -197,10 +200,10 @@ sub saveToFile {
     my $header = shift;
     my $commands = shift;
 
-    if ($self->{dry_run}) {
+    #if ($self->{dry_run}) {
         print "Saving script commands to $scriptFile\n";
-        return;
-    }
+    #    return;
+    #}
 
     open my $fh, ">", $scriptFile or die "Unable to write to $scriptFile: $!";
     
@@ -219,7 +222,7 @@ sub submitJob {
     
     if ($self->{dry_run}) {
         print "Submitting $scriptFile\n";
-        return 0;
+        return (0, "");
     }
 
     my $cmd = "/usr/bin/sbatch $scriptFile";

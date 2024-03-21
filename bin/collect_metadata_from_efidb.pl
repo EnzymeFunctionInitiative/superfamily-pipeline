@@ -16,7 +16,7 @@ use lib "$ENV{EFI_TOOLS_HOME}/lib";
 use EFI::Annotations;
 
 
-my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile, $tigrOut, $tigrDesc);
+my ($dbFile, $dataDir, $ecListOut, $ecDbFile, $keggOut, $pdbOut, $taxOut, $spOut, $rewriteSP, $idFile, $masterIdFile, $tigrOut, $tigrDesc, $alphaDesc);
 my $result = GetOptions(
     "db-file=s"             => \$dbFile, #sqlite
     "id-file=s"             => \$idFile, # the cluster ID list file to use; optionally put :# after the filename to pick col #
@@ -30,6 +30,7 @@ my $result = GetOptions(
     "swissprot-output=s"    => \$spOut,
     "tigr-output=s"         => \$tigrOut,
     "tigr-desc=s"           => \$tigrDesc,
+    "alphafold-desc=s"      => \$alphaDesc,
     "fix-swissprot"         => \$rewriteSP,
 );
 
@@ -56,6 +57,7 @@ my $data = {};
 my $anno = new EFI::Annotations();
 
 if ($idFile) {
+    print "Processing from --id-file\n";
     my $colNum = 1;
     $idFile =~ s/^(.*):(\d+)$/$1/;
     $colNum = defined $2 ? $2 : 1;
@@ -70,6 +72,7 @@ if ($idFile) {
     print "Processing master $masterIdFile\n";
     processMaster($self, $masterIdFile, $data);
 } else {
+    print "Processing from finding directories\n";
     find(sub { processFile($self, $File::Find::dir, $File::Find::name, $data) if $_ =~ m/uniprot.txt$/; }, $dataDir);
 }
 
@@ -105,6 +108,11 @@ if ($pdbOut) {
 if ($taxOut) {
     print "Output tax\n";
     outputTable($taxOut, $data->{tax});
+}
+
+if ($alphaDesc) {
+    print "Output alphafold\n";
+    outputTable($alphaDesc, $data->{af});
 }
 
 if ($tigrOut) {
@@ -204,6 +212,7 @@ SQL
         push @{$data->{kegg}->{$clusterId}}, [$id, $md->{kegg}] if ($md->{kegg} and $md->{kegg} ne "None");
         push @{$data->{pdb}->{$clusterId}}, [$id, $md->{pdb}] if ($md->{pdb} and $md->{pdb} ne "None");
         push @{$data->{tigr}->{$clusterId}}, [$id, $row->{tigr_id}] if $row->{tigr_id};
+        push @{$data->{af}->{$clusterId}}, [$id, $md->{alphafold}] if $md->{alphafold};
         if ($md->{organism} and $row->{taxonomy_id}) {
             my @vals;
             @vals = ($row->{taxonomy_id}, $row->{domain} // "", $row->{kingdom} // "", $row->{phylum} // "", $row->{class} // "", $row->{tax_order} // "", $row->{family} // "", $row->{genus} // "", $row->{species} // "");
@@ -302,13 +311,17 @@ sub getTigrDesc {
     foreach my $cid (keys %$clusterData) {
         map { $fams{$_->[1]} = 1; } @{ $clusterData->{$cid} };
     }
-    my $sql = "SELECT long_name FROM family_info WHERE family = ?";
-    my $sth = $self->{dbh}->prepare($sql);
+    #my $sql = "SELECT long_name FROM family_info WHERE family = ?";
+    #print "$sql\n";
+    #my $sth = $self->{dbh}->prepare($sql);
     foreach my $fam (keys %fams) {
-        print "|$fam|\n";
-        $sth->execute($fam);
+        my $sql = "SELECT long_name FROM family_info WHERE family = '$fam'";
+        print("$sql\n");
+        my $sth = $self->{dbh}->prepare($sql);
+        $sth->execute();
         my $row = $sth->fetchrow_hashref();
         if ($row) {
+            print "Has row\n";
             $fams{$fam} = $row->{long_name};
         }
     }
